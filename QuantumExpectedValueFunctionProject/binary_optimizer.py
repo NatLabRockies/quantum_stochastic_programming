@@ -437,7 +437,7 @@ class BinaryNestedOptimizer:
     #        qc.append(RYGate(theta_cr).control(3), [control, q, self.pdf_qubits[q], ancilla])
     #        qc.x(self.pdf_qubits[q])
     #    return qc
-        return 0
+        0
 
     def grover_reflections_sin_inconstraint(self, m, c, norm):
     #    ''' Create a circuit which does the grover reflections with the asin+constraint oracle
@@ -450,7 +450,7 @@ class BinaryNestedOptimizer:
     #        qc.h(qm)
     #        qc.append(self.grover_operator_sin_inconstraint(2**m_j, c, norm), self.wind_qubits+self.pdf_qubits+[ancilla]+[qm])
     #    return qc
-        return 0
+        0
 
        
 
@@ -477,7 +477,7 @@ class BinaryNestedOptimizer:
             qc.append(RYGate(theta_cr).control(2), [q, self.pdf_qubits[q], ancilla])
             qc.x(self.pdf_qubits[q])
         return qc
-        # 0
+        0
 
     def grover_operator_asin_inconstraint(self, power, norm):
     #    ''' do the grover operator to a power for the arcsin+in constraint oracle '''
@@ -496,7 +496,7 @@ class BinaryNestedOptimizer:
     #        qc.append(RYGate(theta_cr).control(3), [control, q, self.pdf_qubits[q], ancilla])
     #        qc.x(self.pdf_qubits[q])
     #    return qc
-        return 0
+        0
 
     def grover_reflections_asin_inconstraint(self, m, norm):
     #    ''' Create a circuit which does the grover reflections with the asin+constraint oracle
@@ -509,7 +509,7 @@ class BinaryNestedOptimizer:
     #        qc.h(qm)
     #        qc.append(self.grover_operator_asin_inconstraint(2**m_j, norm), self.wind_qubits+self.pdf_qubits+[ancilla]+[qm])
     #    return qc
-        return 0
+        0
 
 
     # builders
