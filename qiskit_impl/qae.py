@@ -85,6 +85,9 @@ class QAE_Optimizer:
 
     def compile_qae_circuit(self) -> QuantumCircuit:
         '''
+        Generates and returns a Qiskit QuantumCircuit object to run the QAE algorithm
+        on the user-specified problem.
+
         Assemble the full QAE circuit for the user-specified problem.
 
         Steps:
@@ -109,6 +112,8 @@ class QAE_Optimizer:
 
     def implemented_qae(self, op, oracle, op_inv, oracle_inv) -> QuantumCircuit:
         """
+        Takes QuantumCircuit objects and returns a QuantumCircuit object representing the QAE algorithm.
+
         Build the canonical QAE circuit (Brassard et al. 2002, Fig. 2 of paper).
 
         Qubit layout:

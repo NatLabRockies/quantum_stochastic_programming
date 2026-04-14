@@ -103,7 +103,21 @@ class BinaryNestedOptimizer:
     
     def wind_scenario_cost(self, wind_output: list[int], scenario: tuple[int], wind_demand: int) -> float:
         """
+        Given a list of wind outputs and the corresponding scenario, return the cost of that scenario.
+
         Compute second-stage cost  q(y, ξ)  for one turbine decision and one wind scenario.
+
+        For each turbine j:
+          effective_output[j] = wind_output[j] AND scenario[j]
+            → turbine j generates power only if it is ON (y[j]=1) AND wind blows (ξ[j]=1)
+          cost contribution   = wind_costs[j] * effective_output[j]
+
+        If total effective output < wind_demand:
+          shortfall = wind_demand - sum(effective_output)
+          recourse  = shortfall * recourse_cost   ← expensive backup power purchase
+
+        This is q(x, y, ξ) from Eq. (2) of the paper.
+        """
 
         For each turbine j:
           effective_output[j] = wind_output[j] AND scenario[j]
@@ -129,6 +143,8 @@ class BinaryNestedOptimizer:
 
     def prep_gs(self, wind_demand):
         """
+        Create a statevector which is the minima for each scenario.
+
         Build the ideal "ground-state" wavefunction |ψ*⟩ — the state perfect DQA would produce.
 
         For each scenario ξ (with probability Pr[ξ]):
@@ -155,6 +171,8 @@ class BinaryNestedOptimizer:
     ## Classical solvers
     def min_scenario(self, wind_demand, scenario):
         """
+        Get the minimization for a single wind scenario.
+
         Classical brute-force second-stage solver for ONE fixed wind scenario ξ.
 
         Enumerate all turbine decisions y with sum(y) == wind_demand (the feasible set),
@@ -228,6 +246,8 @@ class BinaryNestedOptimizer:
     
     def dicke_state_circuit(self, weight):
         """
+        Prepare the Dicke state. Reference: https://arxiv.org/pdf/1904.07358.pdf
+
         Prepare the Dicke state  |D_n^k⟩  with n = num_wind_vars qubits and k = weight ones.
 
         The Dicke state is a uniform superposition over ALL bitstrings with exactly k ones:
@@ -294,6 +314,10 @@ class BinaryNestedOptimizer:
 
     def cost_operator(self, amplitude, constraint_amplitude, norm):
         """
+        Our cost operator.
+        `constraint_amplitude` will be recourse for the constraint-preserving mixer,
+        and a penalty weight otherwise.
+
         Build the cost (phase) operator  U_q(γ) = exp(-i γ H_C).
 
         For each turbine j, applies TWO controlled-phase (CP) gates:
@@ -326,6 +350,8 @@ class BinaryNestedOptimizer:
 
     def demand_constraint_preserving_mixer(self, amplitude):
         """
+        Mixing operator which preserves the demand constraint.
+
         Build the XY mixer  U_d(β) = exp(-i β H_XY)  that preserves Hamming weight.
 
         For every pair of qubits (j, k):  applies  SWAP^β  (a fractional SWAP gate).
@@ -361,6 +387,8 @@ class BinaryNestedOptimizer:
 
     def adiabatic_evolution_circuit(self, wind_demand, time, time_steps, norm):
         """
+        Adiabatic evolution; currently only using the constraint-preserving mixer.
+
         Build the Discrete Quantum Annealing (DQA) circuit  U_DQA(T).
 
         Implements the alternating-operator ansatz (QAOA-style) with a LINEAR
@@ -516,6 +544,8 @@ class BinaryNestedOptimizer:
 
     def exact_oracle(self, ydemand, norm, inverse=False):
         """
+        Compute the exact oracle — obviously untractable, but helpful for actually determining accuracy.
+
         Build the exact oracle  F_exact  (Eq. 44 of paper).
 
         For every (y, ξ) basis state that satisfies sum(y) == ydemand:
@@ -581,6 +611,9 @@ class BinaryNestedOptimizer:
 
     def single_oracle_sin_inconstraint(self, c, norm, inverse=False):
         """
+        Compute the oracle onto an ancilla qubit — assuming our states are in-constraint,
+        using the sin approximation.
+
         Build the practical sin-approximation oracle  F_sin  (Eq. 45 of paper).
 
         Uses the small-angle approximation  sin(θ) ≈ θ  to decompose the oracle

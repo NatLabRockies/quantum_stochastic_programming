@@ -22,6 +22,8 @@ args should be the same as the args in qae.py, but should also contain the requi
 # Functions from binary optimizer for testing
 def demand_constraint_preserving_mixer(amplitude:float, args:dict) -> QuantumCircuit:
     """
+    Mixing operator which preserves the demand constraint.
+
     XY mixer  U_d(β)  that preserves the Hamming weight (= wind demand constraint).
 
     For every pair (j, k) of wind qubits, applies SWAP^β:
@@ -44,6 +46,10 @@ def demand_constraint_preserving_mixer(amplitude:float, args:dict) -> QuantumCir
 
 def cost_operator(amplitude:float, args:dict) -> QuantumCircuit:
     """
+    Our cost operator.
+    `constraint_amplitude` will be recourse for the constraint-preserving mixer,
+    and a penalty weight otherwise.
+
     Phase (cost) operator  U_q(γ)  encoding second-stage costs as quantum phases.
 
     For each wind turbine j, applies two CP (controlled-phase) gates:
@@ -83,6 +89,9 @@ def cost_scenario_operator(amplitude:float, args:dict) -> QuantumCircuit:
 
 def single_oracle_sin_inconstraint(args:dict, inverse=False) -> QuantumCircuit:
     """
+    Compute the oracle onto an ancilla qubit — assuming our states are in-constraint,
+    using the sin approximation.
+
     Practical oracle  F_sin  (Eq. 45 of paper) using the sin-approximation.
 
     For each turbine j, applies two CCRY (doubly-controlled-RY) rotations on the ancilla:
@@ -118,6 +127,8 @@ def single_oracle_sin_inconstraint(args:dict, inverse=False) -> QuantumCircuit:
 
 def dicke_state_circuit(args:dict) -> QuantumCircuit:
     """
+    Reference: https://arxiv.org/pdf/1904.07358.pdf
+
     Prepare the Dicke state  |D_n^k⟩  on n = args['n_y'] qubits with k = args['w_d'] ones.
 
     The Dicke state is a UNIFORM superposition over all n-bit strings with exactly k ones:
@@ -160,6 +171,12 @@ def dicke_state_circuit(args:dict) -> QuantumCircuit:
 
 def alternating_operator_ansatz(args:dict) -> QuantumCircuit:
     """
+    Creates alternating ansatz circuit given circuits for cost operator and mixer operator.
+    Input:  args - dict containing num_qubits, gate used, graph edge list, angle (Parameter),
+            cost_operator_circuit (Function), initial_state (QuantumCircuit),
+            mixer_operator_circuit (Function), cost_qubits, ancilla_qubits, Theta (list).
+    Output: QuantumCircuit
+
     Build the DQA (Discrete Quantum Annealing) ansatz circuit  U_DQA.
 
     This is the QAOA-style alternating-operator ansatz:

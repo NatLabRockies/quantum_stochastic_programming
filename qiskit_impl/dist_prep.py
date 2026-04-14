@@ -45,6 +45,10 @@ def make_variational_distribution_circuit(args:dict) -> QuantumCircuit:
 
 def make_pdf_skewnormal(n:int) -> QuantumCircuit:
     """
+    Generates a probability density for a skew normal distribution.
+    Input: system size n
+    Output: dictionary containing PDF
+
     Build a discrete PDF approximating a skew-normal distribution over n-qubit bitstrings.
 
     Strategy:
@@ -68,6 +72,10 @@ def make_pdf_skewnormal(n:int) -> QuantumCircuit:
 
 def make_pdf_uniform(n:int) -> QuantumCircuit:
     """
+    Generates a probability density for a uniform distribution.
+    Input: system size n - int
+    Output: dictionary containing PDF - dict
+
     Build a discrete uniform PDF over all 2^n bitstrings on n qubits.
 
     Every bitstring (including ones that violate wind-demand) gets equal probability 1/2^n.
@@ -86,6 +94,8 @@ def make_pdf_uniform(n:int) -> QuantumCircuit:
 
 def pdf_initialize(args:dict) -> QuantumCircuit:
     """
+    Create the pdf as a wavefunction.
+
     Build a quantum circuit that encodes the PDF  Pr[ξ]  as amplitudes on the ξ register.
 
     The prepared state is:
