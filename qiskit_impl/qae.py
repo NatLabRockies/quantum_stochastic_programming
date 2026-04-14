@@ -10,7 +10,7 @@ from qiskit import QuantumCircuit
 from qiskit_aer import Aer
 from qiskit.compiler import transpile
 from qiskit.circuit.library.standard_gates import ZGate
-from qiskit.circuit.library import QFT
+from qiskit.circuit.library import QFTGate
 
 # File Import
 from dist_prep import *
@@ -173,7 +173,7 @@ class QAE_Optimizer:
                 # A
                 qc.append(op.control(1), [i]+list(range(self.m, ancilla)))
                 qc.append(oracle.control(1), [i]+list(range(self.m, ancilla+1)))
-        qc.append(QFT(self.m, inverse=True), list(range(self.m)))
+        qc.append(QFTGate(self.m).inverse(), list(range(self.m)))
 
         if self.gateset:
             qc = transpile(qc, basis_gates=self.gateset)
