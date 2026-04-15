@@ -85,11 +85,11 @@ quantum_stochastic_programming/
 
 ## 3. Module reference — `qiskit_impl/`
 
-### `binary_optimizer.py`
+### [`binary_optimizer.py`](qiskit_impl/binary_optimizer.py)
 
 The main entry point for the DQA+QAE pipeline.
 
-#### `class BernoulliA(QuantumCircuit)`
+#### [`class BernoulliA(QuantumCircuit)`](qiskit_impl/binary_optimizer.py#L133)
 Wraps a DQA state-preparation circuit $\mathcal{A}$ into the Bernoulli amplitude estimation form.  Used by `execute_qae()`.
 
 | Argument | Type | Description |
@@ -98,7 +98,7 @@ Wraps a DQA state-preparation circuit $\mathcal{A}$ into the Bernoulli amplitude
 | `oracle` | `QuantumCircuit` | Phase-marking oracle |
 | `n` | `int` | Number of wind qubits |
 
-#### `class BinaryNestedOptimizer`
+#### [`class BinaryNestedOptimizer`](qiskit_impl/binary_optimizer.py#L157)
 
 The core solver.  Encodes the power system as a quantum circuit and drives the full DQA → QAE pipeline.
 
@@ -117,52 +117,52 @@ bno = BinaryNestedOptimizer(
 
 | Method | Returns | Description |
 |---|---|---|
-| `dicke_state_initialize(weight)` | `QuantumCircuit` | Prepares $\|D_n^k\rangle$ — the Dicke state with `weight` excitations (feasible initial state) |
-| `pdf_initialize()` | `QuantumCircuit` | Encodes $p(\xi)$ into the PDF register amplitudes |
-| `cost_operator(amplitude, constraint_amplitude, norm)` | `QuantumCircuit` | Phase operator $e^{-i s H_C}$ over all scenarios |
-| `cost_scenario_operator(scenario, amplitude, constraint_amplitude, norm)` | `QuantumCircuit` | Single-scenario phase operator |
-| `demand_constraint_preserving_mixer(amplitude)` | `QuantumCircuit` | XY-mixer $U_d(\beta)$ that preserves $\sum y_j = k$ (Hamming weight) |
-| `adiabatic_evolution_circuit(wind_demand, time, time_steps, norm)` | `QuantumCircuit` | Full DQA circuit $U_\text{DQA}(T)$: Dicke init + $T$ Trotter steps |
-| `adiabatic_evolution_scenario_circuit(wind_demand, time, time_steps, scenario, norm)` | `QuantumCircuit` | Single-scenario DQA circuit |
-| `implemented_qae(op, oracle, op_inv, oracle_inv, m, norm)` | `QuantumCircuit` | Canonical QAE circuit (Brassard 2002, Fig. 2 of paper) |
-| `canonical_qae(Uopt, oracle, m, c, norm)` | `QuantumCircuit` | Convenience wrapper for canonical QAE |
+| [`dicke_state_initialize(weight)`](qiskit_impl/binary_optimizer.py#L323) | `QuantumCircuit` | Prepares $\|D_n^k\rangle$ — the Dicke state with `weight` excitations (feasible initial state) |
+| [`pdf_initialize()`](qiskit_impl/binary_optimizer.py#L393) | `QuantumCircuit` | Encodes $p(\xi)$ into the PDF register amplitudes |
+| [`cost_operator(amplitude, constraint_amplitude, norm)`](qiskit_impl/binary_optimizer.py#L412) | `QuantumCircuit` | Phase operator $e^{-i s H_C}$ over all scenarios |
+| [`cost_scenario_operator(scenario, amplitude, constraint_amplitude, norm)`](qiskit_impl/binary_optimizer.py#L476) | `QuantumCircuit` | Single-scenario phase operator |
+| [`demand_constraint_preserving_mixer(amplitude)`](qiskit_impl/binary_optimizer.py#L448) | `QuantumCircuit` | XY-mixer $U_d(\beta)$ that preserves $\sum y_j = k$ (Hamming weight) |
+| [`adiabatic_evolution_circuit(wind_demand, time, time_steps, norm)`](qiskit_impl/binary_optimizer.py#L485) | `QuantumCircuit` | Full DQA circuit $U_\text{DQA}(T)$: Dicke init + $T$ Trotter steps |
+| [`adiabatic_evolution_scenario_circuit(wind_demand, time, time_steps, scenario, norm)`](qiskit_impl/binary_optimizer.py#L536) | `QuantumCircuit` | Single-scenario DQA circuit |
+| [`implemented_qae(op, oracle, op_inv, oracle_inv, m, norm)`](qiskit_impl/binary_optimizer.py#L569) | `QuantumCircuit` | Canonical QAE circuit (Brassard 2002, Fig. 2 of paper) |
+| [`canonical_qae(Uopt, oracle, m, c, norm)`](qiskit_impl/binary_optimizer.py#L626) | `QuantumCircuit` | Convenience wrapper for canonical QAE |
 
 **Oracle methods** (mark the good subspace for QAE):
 
 | Method | Description |
 |---|---|
-| `exact_oracle(ydemand, norm, inverse)` | Exact phase-kickback oracle |
-| `single_oracle_sin_inconstraint(c, norm, inverse)` | $\sin$-encoded in-constraint oracle |
-| `single_oracle_asin_inconstraint(norm, inverse)` | $\arcsin$-encoded oracle |
-| `grover_operator_sin_inconstraint(power, c, norm)` | Grover operator $Q^p$ for sin oracle |
-| `grover_reflections_sin_inconstraint(m, c, norm)` | $m$ Grover reflections |
+| [`exact_oracle(ydemand, norm, inverse)`](qiskit_impl/binary_optimizer.py#L657) | Exact phase-kickback oracle |
+| [`single_oracle_sin_inconstraint(c, norm, inverse)`](qiskit_impl/binary_optimizer.py#L724) | $\sin$-encoded in-constraint oracle |
+| [`single_oracle_asin_inconstraint(norm, inverse)`](qiskit_impl/binary_optimizer.py#L800) | $\arcsin$-encoded oracle |
+| [`grover_operator_sin_inconstraint(power, c, norm)`](qiskit_impl/binary_optimizer.py#L767) | Grover operator $Q^p$ for sin oracle |
+| [`grover_reflections_sin_inconstraint(m, c, norm)`](qiskit_impl/binary_optimizer.py#L785) | $m$ Grover reflections |
 
 **Execution methods:**
 
 | Method | Description |
 |---|---|
-| `execute_optimizer(qc, num_meas)` | Run DQA circuit on `statevector_simulator`, return measurement counts |
-| `execute_optimizer_oracle(qc, num_meas)` | Run oracle circuit on `aer_simulator_statevector` |
-| `execute_qae(qc, m, num_meas)` | Run canonical QAE circuit with $m$ evaluation qubits, return amplitude estimate |
+| [`execute_optimizer(qc, num_meas)`](qiskit_impl/binary_optimizer.py#L863) | Run DQA circuit on `statevector_simulator`, return measurement counts |
+| [`execute_optimizer_oracle(qc, num_meas)`](qiskit_impl/binary_optimizer.py#L885) | Run oracle circuit on `aer_simulator_statevector` |
+| [`execute_qae(qc, m, num_meas)`](qiskit_impl/binary_optimizer.py#L914) | Run canonical QAE circuit with $m$ evaluation qubits, return amplitude estimate |
 
 **Classical utilities:**
 
 | Method | Description |
 |---|---|
-| `gen_all_wind_outputs()` | Enumerate all feasible wind assignments |
-| `wind_scenario_cost(wind_output, scenario, wind_demand)` | Evaluate cost for one assignment + scenario |
-| `brute_force_wind_demand_expectation_values()` | Classical brute-force expected value for all demands (reference) |
-| `brute_force_energy_surface()` | Full energy landscape (for small instances) |
-| `prep_gs(wind_demand)` | Prepare the exact ground-state statevector (for testing) |
-| `process_expectation_value_optimizer(wind_demand, counts)` | Convert measurement counts to expected cost |
+| [`gen_all_wind_outputs()`](qiskit_impl/binary_optimizer.py#L203) | Enumerate all feasible wind assignments |
+| [`wind_scenario_cost(wind_output, scenario, wind_demand)`](qiskit_impl/binary_optimizer.py#L213) | Evaluate cost for one assignment + scenario |
+| [`brute_force_wind_demand_expectation_values()`](qiskit_impl/binary_optimizer.py#L296) | Classical brute-force expected value for all demands (reference) |
+| [`brute_force_energy_surface()`](qiskit_impl/binary_optimizer.py#L311) | Full energy landscape (for small instances) |
+| [`prep_gs(wind_demand)`](qiskit_impl/binary_optimizer.py#L241) | Prepare the exact ground-state statevector (for testing) |
+| [`process_expectation_value_optimizer(wind_demand, counts)`](qiskit_impl/binary_optimizer.py#L952) | Convert measurement counts to expected cost |
 
 ---
 
-### `qae.py`
+### [`qae.py`](qiskit_impl/qae.py)
 
 Standalone QAE circuit builder, separated from the optimizer logic.
 
-#### `class QAE_Optimizer`
+#### [`class QAE_Optimizer`](qiskit_impl/qae.py#L76)
 
 Assembles the canonical QAE circuit from an `args` dict.
 
@@ -189,40 +189,40 @@ qc = qae_opt.implemented_qae(op, oracle, op_inv, oracle_inv)  # lower-level
 
 ---
 
-### `ExpValFun_functions.py`
+### [`ExpValFun_functions.py`](qiskit_impl/ExpValFun_functions.py)
 
 Pure functions returning `QuantumCircuit` objects.  No class state — designed for use as callables passed via `args` dicts.
 
 | Function | Signature | Description |
 |---|---|---|
-| `demand_constraint_preserving_mixer` | `(amplitude, args)` | XY mixer; preserves $\sum y_j$ = `w_d` |
-| `cost_operator` | `(amplitude, args)` | Full stochastic cost phase operator |
-| `cost_scenario_operator` | `(amplitude, args)` | Single-scenario cost phase operator |
-| `single_oracle_sin_inconstraint` | `(args, inverse=False)` | $\sin$-encoded phase oracle |
-| `dicke_state_circuit` | `(args)` | Dicke state preparation $\|D_n^k\rangle$ |
-| `alternating_operator_ansatz` | `(args)` | Full DQA alternating-operator ansatz for one Trotter step |
+| [`demand_constraint_preserving_mixer`](qiskit_impl/ExpValFun_functions.py#L53) | `(amplitude, args)` | XY mixer; preserves $\sum y_j$ = `w_d` |
+| [`cost_operator`](qiskit_impl/ExpValFun_functions.py#L77) | `(amplitude, args)` | Full stochastic cost phase operator |
+| [`cost_scenario_operator`](qiskit_impl/ExpValFun_functions.py#L111) | `(amplitude, args)` | Single-scenario cost phase operator |
+| [`single_oracle_sin_inconstraint`](qiskit_impl/ExpValFun_functions.py#L120) | `(args, inverse=False)` | $\sin$-encoded phase oracle |
+| [`dicke_state_circuit`](qiskit_impl/ExpValFun_functions.py#L158) | `(args)` | Dicke state preparation $\|D_n^k\rangle$ |
+| [`alternating_operator_ansatz`](qiskit_impl/ExpValFun_functions.py#L202) | `(args)` | Full DQA alternating-operator ansatz for one Trotter step |
 
 ---
 
-### `dist_prep.py`
+### [`dist_prep.py`](qiskit_impl/dist_prep.py)
 
 Circuits that encode probability distributions into quantum amplitudes.
 
 | Function | Description |
 |---|---|
-| `pdf_initialize(args)` | Encode arbitrary discrete PDF $p(\xi)$ into register amplitudes |
-| `make_pdf_uniform(n)` | Uniform distribution over $2^n$ scenarios |
-| `make_pdf_skewnormal(n)` | Skew-normal distribution, $n$ wind turbines |
-| `make_normal_distribution_circuit(args)` | Gaussian amplitude encoding |
-| `make_variational_distribution_circuit(args)` | Variational (trainable) amplitude encoding |
+| [`pdf_initialize(args)`](qiskit_impl/dist_prep.py#L95) | Encode arbitrary discrete PDF $p(\xi)$ into register amplitudes |
+| [`make_pdf_uniform(n)`](qiskit_impl/dist_prep.py#L73) | Uniform distribution over $2^n$ scenarios |
+| [`make_pdf_skewnormal(n)`](qiskit_impl/dist_prep.py#L46) | Skew-normal distribution, $n$ wind turbines |
+| [`make_normal_distribution_circuit(args)`](qiskit_impl/dist_prep.py#L25) | Gaussian amplitude encoding |
+| [`make_variational_distribution_circuit(args)`](qiskit_impl/dist_prep.py#L33) | Variational (trainable) amplitude encoding |
 
 ---
 
-### `resource_estimator.py`
+### [`resource_estimator.py`](qiskit_impl/resource_estimator.py)
 
 Fault-tolerant resource estimation using **pytket** (gate counting) and **qualtran** (Beverland et al. surface-code model).
 
-#### `class Resource_Estimator`
+#### [`class Resource_Estimator`](qiskit_impl/resource_estimator.py#L44)
 
 ```python
 args = {
@@ -249,19 +249,19 @@ result = re.bev_resource_estimator()
 
 | Function | Description |
 |---|---|
-| `get_circuit_metrics(circuit)` | Extract gate counts (T, Clifford, rotation) from a pytket `Circuit` |
-| `get_factory_params(R, Q_0, P_r, d, c, M, tau_d, C, error_budget)` | Compute magic-state factory parameters |
-| `qasm_to_clifford_and_t(qc, ...)` | Convert Qiskit `QuantumCircuit` → Clifford+T decomposition via Solovay-Kitaev |
+| [`get_circuit_metrics(circuit)`](qiskit_impl/resource_estimator.py#L141) | Extract gate counts (T, Clifford, rotation) from a pytket `Circuit` |
+| [`get_factory_params(R, Q_0, P_r, d, c, M, tau_d, C, error_budget)`](qiskit_impl/resource_estimator.py#L175) | Compute magic-state factory parameters |
+| [`qasm_to_clifford_and_t(qc, ...)`](qiskit_impl/resource_estimator.py#L224) | Convert Qiskit `QuantumCircuit` → Clifford+T decomposition via Solovay-Kitaev |
 
 ---
 
 ## 4. Module reference — `QuantumExpectedValueFunctionProject/`
 
-### `optimizer_utils.py`
+### [`optimizer_utils.py`](QuantumExpectedValueFunctionProject/optimizer_utils.py)
 
 Foundation utilities shared by all optimizers.
 
-#### `class VariableRegister`
+#### [`class VariableRegister`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L67)
 
 Stores an integer variable as a qubit register.  Handles binary and unary encodings, and generates Hamiltonian sub-circuits for arithmetic constraints.
 
@@ -273,16 +273,16 @@ reg = VariableRegister(max_value=3, encoding='binary')  # 2-qubit register
 
 | Method | Description |
 |---|---|
-| `numberOperator(amplitude)` | Phase operator $e^{i \alpha \hat{n}}$ (diagonal in number basis) |
-| `squaredOperator(amplitude)` | Phase operator $e^{i \alpha \hat{n}^2}$ |
-| `productOperator(other, amplitude)` | Two-register product $e^{i \alpha \hat{n}_A \hat{n}_B}$ |
-| `swapOperator(other, amplitude)` | SWAP-network mixing between two registers |
-| `lessThanOperator(other, amplitude)` | Phase if `self < other` |
-| `lessThanValue(value, amplitude)` | Phase if `self < value` |
-| `getValue(bstr)` | Decode measurement bitstring to integer |
-| `setValue(integer)` | Encode integer as circuit preparation |
+| [`numberOperator(amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L322) | Phase operator $e^{i \alpha \hat{n}}$ (diagonal in number basis) |
+| [`squaredOperator(amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L352) | Phase operator $e^{i \alpha \hat{n}^2}$ |
+| [`productOperator(other, amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L334) | Two-register product $e^{i \alpha \hat{n}_A \hat{n}_B}$ |
+| [`swapOperator(other, amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L304) | SWAP-network mixing between two registers |
+| [`lessThanOperator(other, amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L364) | Phase if `self < other` |
+| [`lessThanValue(value, amplitude)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L397) | Phase if `self < value` |
+| [`getValue(bstr)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L410) | Decode measurement bitstring to integer |
+| [`setValue(integer)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L426) | Encode integer as circuit preparation |
 
-#### `class PowerSystem_1Bus`
+#### [`class PowerSystem_1Bus`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L444)
 
 Stores the power-system problem specification.
 
@@ -302,14 +302,14 @@ system = PowerSystem_1Bus(
 
 | Method | Description |
 |---|---|
-| `cobylaSolve(discrete, gas_values)` | Classical COBYLA solver (reference) |
-| `getFirstStageCosts(gas_decisions)` | Evaluate first-stage cost for a gas commitment |
-| `plotMeasurementsVExpectedCost(measured_decisions)` | Plot optimizer output vs. classical optimum |
-| `normalize(val)` / `unNormalize(val)` | Cost normalization helpers |
+| [`cobylaSolve(discrete, gas_values)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L558) | Classical COBYLA solver (reference) |
+| [`getFirstStageCosts(gas_decisions)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L546) | Evaluate first-stage cost for a gas commitment |
+| [`plotMeasurementsVExpectedCost(measured_decisions)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L624) | Plot optimizer output vs. classical optimum |
+| [`normalize(val)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L540) / [`unNormalize(val)`](QuantumExpectedValueFunctionProject/optimizer_utils.py#L543) | Cost normalization helpers |
 
 ---
 
-### `dense_optimizer.py` — `class Optimizer_Dense`
+### [`dense_optimizer.py`](QuantumExpectedValueFunctionProject/dense_optimizer.py) — [`class Optimizer_Dense`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L74)
 
 Solves the UC problem by keeping scenarios in **superposition** in the PDF register, measuring gas decisions only.  This is the approach that makes QAE applicable.
 
@@ -325,39 +325,39 @@ opt = Optimizer_Dense(system, encoding='binary')
 
 | Method | Schedule | Notes |
 |---|---|---|
-| `solveAnnealing(time, method, num_meas, penalty)` | Linear, single-phase | QUBO or quadratic penalty; all-to-one transpile |
-| `solveAnnealingAlternating(total_time, time_steps, ...)` | Alternating operator | QAOA-style; supports `phase='PEN'/'COST'` and `mixer='X'/'SWAP'` |
-| `solveAnnealingDenseStochHam(total_time, t2, t1_steps, t2_steps, ...)` | Two-phase stochastic | Phase 1: annealing; Phase 2: stochastic Hamiltonian |
-| `solveAnnealingDenseStochHam2Layers(t1_time, t1_steps, t2_time, t2_steps, ...)` | Two-phase layered | Like above with explicit layer separation |
-| `solveAnnealingStochHam(total_time, t_steps, ...)` | Stochastic Hamiltonian | Full stochastic Hamiltonian throughout |
-| `solveECAnnealing(total_time, gamma, ...)` | EC (ensemble copy) | Multiple copies with weight $\gamma$ |
-| `solveThreePhaseAnnealing(total_time, ...)` | Three-phase | Annealing → PDF projection → re-annealing |
+| [`solveAnnealing(time, method, num_meas, penalty)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L199) | Linear, single-phase | QUBO or quadratic penalty; all-to-one transpile |
+| [`solveAnnealingAlternating(total_time, time_steps, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L275) | Alternating operator | QAOA-style; supports `phase='PEN'/'COST'` and `mixer='X'/'SWAP'` |
+| [`solveAnnealingDenseStochHam(total_time, t2, t1_steps, t2_steps, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L501) | Two-phase stochastic | Phase 1: annealing; Phase 2: stochastic Hamiltonian |
+| [`solveAnnealingDenseStochHam2Layers(t1_time, t1_steps, t2_time, t2_steps, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L374) | Two-phase layered | Like above with explicit layer separation |
+| [`solveAnnealingStochHam(total_time, t_steps, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L631) | Stochastic Hamiltonian | Full stochastic Hamiltonian throughout |
+| [`solveECAnnealing(total_time, gamma, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L718) | EC (ensemble copy) | Multiple copies with weight $\gamma$ |
+| [`solveThreePhaseAnnealing(total_time, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L814) | Three-phase | Annealing → PDF projection → re-annealing |
 | `solveThreePhaseAnnealing(...)` | Three-phase | Phase 1: DQA; Phase 2: fixed; Phase 3: sampling with PDF reinit |
-| `solveTwoPhaseAnnealing(total_time, time_2, ...)` | Two-phase sampling | Phase 1: build state; Phase 2: measure-and-reinit loop |
+| [`solveTwoPhaseAnnealing(total_time, time_2, ...)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1031) | Two-phase sampling | Phase 1: build state; Phase 2: measure-and-reinit loop |
 
 **Circuit-building helpers:**
 
 | Method | Description |
 |---|---|
-| `priceOperator(amp)` | Gas cost phase operator |
-| `scenarioOperator(amp)` | Scenario (wind) cost phase operator |
-| `penaltyOperator(amp, penalty)` | Demand-constraint penalty |
-| `initializePDF(inverse)` | Prepare (or un-prepare) the PDF register |
-| `dickeState()` | Prepare Dicke state on decision qubits |
-| `setVariables(vars, vals)` | Initialize a register to specific values |
+| [`priceOperator(amp)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L160) | Gas cost phase operator |
+| [`scenarioOperator(amp)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L173) | Scenario (wind) cost phase operator |
+| [`penaltyOperator(amp, penalty)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L185) | Demand-constraint penalty |
+| [`initializePDF(inverse)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1181) | Prepare (or un-prepare) the PDF register |
+| [`dickeState()`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1222) | Prepare Dicke state on decision qubits |
+| [`setVariables(vars, vals)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1170) | Initialize a register to specific values |
 
 **Post-processing:**
 
 | Method | Description |
 |---|---|
-| `calcCostPerScenario(counts)` | Compute expected cost per scenario from measurements |
-| `calcGasExpectationValue(counts)` | Expected value of gas commitment |
-| `getGasCounts(counts)` | Marginalise over scenarios, return gas-only counts |
-| `getDecision(gas_decisions)` | Extract optimal gas commitment from measurement histogram |
+| [`calcCostPerScenario(counts)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1243) | Compute expected cost per scenario from measurements |
+| [`calcGasExpectationValue(counts)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1277) | Expected value of gas commitment |
+| [`getGasCounts(counts)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1288) | Marginalise over scenarios, return gas-only counts |
+| [`getDecision(gas_decisions)`](QuantumExpectedValueFunctionProject/dense_optimizer.py#L1328) | Extract optimal gas commitment from measurement histogram |
 
 ---
 
-### `expanded_optimizer.py` — `class Optimizer_Expanded`
+### [`expanded_optimizer.py`](QuantumExpectedValueFunctionProject/expanded_optimizer.py) — [`class Optimizer_Expanded`](QuantumExpectedValueFunctionProject/expanded_optimizer.py#L19)
 
 Alternative formulation: each scenario gets its own set of wind+slack qubits in the register (no superposition over scenarios).  Simpler to understand, but exponentially larger register.
 
@@ -367,7 +367,7 @@ opt = Optimizer_Expanded(system, encoding='binary')
 
 ---
 
-### `experiment_convergence.py`
+### [`experiment_convergence.py`](QuantumExpectedValueFunctionProject/experiment_convergence.py)
 
 Script for convergence experiments.  Run directly:
 
