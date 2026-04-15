@@ -1864,7 +1864,7 @@ evaluate q(y, xi) for each, and return the cheapest one:</p>
         <p>Compute the classical exact expected cost for every possible wind demand.</p>
 <p>For each integer <code>wind_demand</code> in <code>[0, demand]</code>, enumerates all feasible
 turbine decisions and scenarios to compute:</p>
-<p>$$\phi(k) = \mathbb{E}<em _y_="k">{\xi}[\min</em> q(y, \xi)]$$</p>
+<div class="arithmatex">\[\phi(k) = \mathbb{E}_{\xi}[\min_{|y|=k} q(y, \xi)]\]</div>
 <p>This is the classical brute-force ground truth used to benchmark DQA and QAE.</p>
 
 
@@ -1960,7 +1960,7 @@ turbine decisions and scenarios to compute:</p>
 
         <p>Compute the full first-stage objective function over all gas levels.</p>
 <p>For each gas commitment level <code>x</code> in <code>[0, demand]</code>:</p>
-<p>$$o(x) = x \cdot c_x + \phi(\text{demand} - x)$$</p>
+<div class="arithmatex">\[o(x) = x \cdot c_x + \phi(\text{demand} - x)\]</div>
 <p>where <code>phi</code> is from <code>brute_force_wind_demand_expectation_values()</code>.</p>
 
 
@@ -2043,7 +2043,7 @@ turbine decisions and scenarios to compute:</p>
     <div class="doc doc-contents ">
 
         <p>Convenience wrapper around <code>dicke_state_circuit()</code> returning a gate object.</p>
-<p>Returns a gate that prepares $|D_n^k\rangle$ on <code>num_wind_vars</code> qubits
+<p>Returns a gate that prepares <span class="arithmatex">\(|D_n^k\rangle\)</span> on <code>num_wind_vars</code> qubits
 with <code>weight</code> excitations. Delegates to <code>dicke_state_circuit()</code>.</p>
 
 
@@ -2066,7 +2066,7 @@ with <code>weight</code> excitations. Delegates to <code>dicke_state_circuit()</
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Integer $k$ — number of turbines to turn on (Hamming weight).</p>
+                <p>Integer <span class="arithmatex">\(k\)</span> — number of turbines to turn on (Hamming weight).</p>
               </div>
             </td>
             <td>
@@ -2311,12 +2311,12 @@ the superposition already satisfies sum(y) = wind_demand.</p>
     <div class="doc doc-contents ">
 
         <p>Build a circuit that encodes the PDF as amplitudes on the xi register.</p>
-<p>Prepares the state $|\mathcal{P}\rangle = \sum_\xi \sqrt{\Pr[\xi]}|\xi\rangle$
-so that measuring the xi register gives scenario $\xi$ with probability $\Pr[\xi]$.</p>
+<p>Prepares the state <span class="arithmatex">\(|\mathcal{P}\rangle = \sum_\xi \sqrt{\Pr[\xi]}|\xi\rangle\)</span>
+so that measuring the xi register gives scenario <span class="arithmatex">\(\xi\)</span> with probability <span class="arithmatex">\(\Pr[\xi]\)</span>.</p>
 <p>Two cases:</p>
 <ul>
-<li><code>is_uniform=True</code>: $n$ Hadamard gates — $O(n)$ circuit depth.</li>
-<li><code>is_uniform=False</code>: Qiskit <code>Initialize</code> — $O(2^n)$ gates after transpile.</li>
+<li><code>is_uniform=True</code>: <span class="arithmatex">\(n\)</span> Hadamard gates — <span class="arithmatex">\(O(n)\)</span> circuit depth.</li>
+<li><code>is_uniform=False</code>: Qiskit <code>Initialize</code> — <span class="arithmatex">\(O(2^n)\)</span> gates after transpile.</li>
 </ul>
 
 
@@ -3502,8 +3502,8 @@ Error grows with the magnitude of individual cost angles.</p>
     <div class="doc doc-contents ">
 
         <p>Build the arcsin oracle using exact RY angles (more accurate than sin oracle).</p>
-<p>Applies CCRY rotations with angles $2\arcsin(\sqrt{c/\text{norm}})$ instead
-of the small-angle approximation $\pi c/\text{norm}$ used by
+<p>Applies CCRY rotations with angles <span class="arithmatex">\(2\arcsin(\sqrt{c/\text{norm}})\)</span> instead
+of the small-angle approximation <span class="arithmatex">\(\pi c/\text{norm}\)</span> used by
 <code>single_oracle_sin_inconstraint()</code>.</p>
 <p>For each turbine j:</p>
 <ul>
@@ -3548,7 +3548,7 @@ profile (arcsin vs. linear). Requires <code>c_y/norm &lt;= 1</code> and <code>c_
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>True</code>, negate all rotation angles (returns $\mathcal{F}^\dagger$).</p>
+                <p>If <code>True</code>, negate all rotation angles (returns <span class="arithmatex">\(\mathcal{F}^\dagger\)</span>).</p>
               </div>
             </td>
             <td>
@@ -3873,8 +3873,8 @@ profile (arcsin vs. linear). Requires <code>c_y/norm &lt;= 1</code> and <code>c_
 
         <p>Execute the DQA + oracle circuit and return the ancilla amplitude.</p>
 <p>Runs the circuit that is DQA followed by the oracle, then marginalizes
-over the ancilla qubit to recover the amplitude $a = \Pr[\text{ancilla}=|1\rangle]$.
-This $a$ is the normalized expected cost $\bar{\phi}(x)$.</p>
+over the ancilla qubit to recover the amplitude <span class="arithmatex">\(a = \Pr[\text{ancilla}=|1\rangle]\)</span>.
+This <span class="arithmatex">\(a\)</span> is the normalized expected cost <span class="arithmatex">\(\bar{\phi}(x)\)</span>.</p>
 <p>Two modes:</p>
 <ul>
 <li><code>num_meas=None</code>: Exact statevector — sums probability of all states with ancilla=<code>1</code>.</li>
@@ -4072,7 +4072,7 @@ This $a$ is the normalized expected cost $\bar{\phi}(x)$.</p>
 
         <p>Execute the full QAE circuit and return the QPE readout distribution.</p>
 <p>Runs the canonical QAE circuit (built by <code>implemented_qae()</code>) and returns
-measurement outcomes of the $m$ QPE estimate qubits.</p>
+measurement outcomes of the <span class="arithmatex">\(m\)</span> QPE estimate qubits.</p>
 <p>Post-processing (done by caller):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">b_str</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">b_counts</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">b_counts</span><span class="o">.</span><span class="n">get</span><span class="p">)</span>   <span class="c1"># most probable readout</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">b_int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">b_str</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
@@ -4082,7 +4082,7 @@ measurement outcomes of the $m$ QPE estimate qubits.</p>
 <p>Two modes:</p>
 <ul>
 <li><code>num_meas=None</code>: Exact statevector, marginalizes over the system qubits.</li>
-<li><code>num_meas=N</code>: Sampled, applies measurement gates on the $m$ estimate qubits only.</li>
+<li><code>num_meas=N</code>: Sampled, applies measurement gates on the <span class="arithmatex">\(m\)</span> estimate qubits only.</li>
 </ul>
 <div class="admonition tip">
 <p class="admonition-title">GPU Tier 1 + Tier 3</p>
@@ -4165,7 +4165,7 @@ For <code>m &gt;= 7</code>, also enable <code>cuStateVec_enable=True</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Dict <code>{b_bitstring: probability}</code> over all $2^m$ QPE outcomes.</p>
+                <p>Dict <code>{b_bitstring: probability}</code> over all <span class="arithmatex">\(2^m\)</span> QPE outcomes.</p>
               </div>
             </td>
           </tr>
@@ -4325,8 +4325,8 @@ For <code>m &gt;= 7</code>, also enable <code>cuStateVec_enable=True</code>.</p>
 <p>Post-processes the output of <code>execute_optimizer()</code> into an expected cost
 estimate by evaluating <code>wind_scenario_cost()</code> for each measured bitstring
 and weighting by its probability:</p>
-<p>$$\tilde{\phi}(x) = \sum_{(y, \xi)} p(y, \xi) \cdot q(y, \xi)$$</p>
-<p>where the sum is over all bitstrings in <code>counts</code> and $p$ is the
+<div class="arithmatex">\[\tilde{\phi}(x) = \sum_{(y, \xi)} p(y, \xi) \cdot q(y, \xi)\]</div>
+<p>where the sum is over all bitstrings in <code>counts</code> and <span class="arithmatex">\(p\)</span> is the
 normalized measurement frequency.</p>
 
 
@@ -4349,7 +4349,7 @@ normalized measurement frequency.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Integer $k$ — required Hamming weight of turbine decisions.</p>
+                <p>Integer <span class="arithmatex">\(k\)</span> — required Hamming weight of turbine decisions.</p>
               </div>
             </td>
             <td>
@@ -4390,7 +4390,7 @@ Bitstring layout: <code>[y_0, ..., y_{n-1}, xi_0, ..., xi_{n-1}]</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Float — estimated expected second-stage cost $\tilde{\phi}(x)$.</p>
+                <p>Float — estimated expected second-stage cost <span class="arithmatex">\(\tilde{\phi}(x)\)</span>.</p>
               </div>
             </td>
           </tr>
@@ -4582,6 +4582,10 @@ Bitstring layout: <code>[y_0, ..., y_{n-1}, xi_0, ..., xi_{n-1}]</code>.</p>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

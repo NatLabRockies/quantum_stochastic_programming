@@ -1013,28 +1013,28 @@
 <h2 id="two-stage-stochastic-optimization">Two-Stage Stochastic Optimization<a class="headerlink" href="#two-stage-stochastic-optimization" title="Permanent link">&para;</a></h2>
 <p>The algorithm solves a two-stage stochastic program:</p>
 <ul>
-<li><strong>First stage</strong> ($x$): Commit gas generators before wind is realized. Cost = $c_x^\top x$.</li>
-<li><strong>Second stage</strong> ($y, r$): Given $x$ and realized wind $\xi$, choose turbine dispatch $y$ and recourse $r$ to meet demand $d$. Cost = $\sum_j c_y^j y_j \xi_j + c_r r$.</li>
-<li><strong>Objective</strong>: $\min_x \left[ c_x^\top x + \mathbb{E}_\xi[\min_y q(x, y, \xi)] \right]$</li>
+<li><strong>First stage</strong> (<span class="arithmatex">\(x\)</span>): Commit gas generators before wind is realized. Cost = <span class="arithmatex">\(c_x^\top x\)</span>.</li>
+<li><strong>Second stage</strong> (<span class="arithmatex">\(y, r\)</span>): Given <span class="arithmatex">\(x\)</span> and realized wind <span class="arithmatex">\(\xi\)</span>, choose turbine dispatch <span class="arithmatex">\(y\)</span> and recourse <span class="arithmatex">\(r\)</span> to meet demand <span class="arithmatex">\(d\)</span>. Cost = <span class="arithmatex">\(\sum_j c_y^j y_j \xi_j + c_r r\)</span>.</li>
+<li><strong>Objective</strong>: <span class="arithmatex">\(\min_x \left[ c_x^\top x + \mathbb{E}_\xi[\min_y q(x, y, \xi)] \right]\)</span></li>
 </ul>
-<p>The key difficulty is computing $\phi(x) = \mathbb{E}_\xi[\min_y q(x,y,\xi)]$: the min is <em>inside</em> the expectation, making classical Monte Carlo require $O(1/\epsilon^2)$ samples.</p>
+<p>The key difficulty is computing <span class="arithmatex">\(\phi(x) = \mathbb{E}_\xi[\min_y q(x,y,\xi)]\)</span>: the min is <em>inside</em> the expectation, making classical Monte Carlo require <span class="arithmatex">\(O(1/\epsilon^2)\)</span> samples.</p>
 <hr />
 <h2 id="step-1-dqa-discrete-quantum-annealing">Step 1: DQA — Discrete Quantum Annealing<a class="headerlink" href="#step-1-dqa-discrete-quantum-annealing" title="Permanent link">&para;</a></h2>
-<p>DQA prepares a quantum state $|\tilde{\psi}_x^*\rangle$ that approximates the optimal second-stage decisions in superposition.</p>
-<p><strong>Initialization</strong>: Dicke state $|D_n^k\rangle$ — uniform superposition over all $\binom{n}{k}$ feasible turbine commitments:</p>
-<p>$$|D_n^k\rangle = \frac{1}{\sqrt{\binom{n}{k}}} \sum_{|y|=k} |y\rangle \otimes |\xi\rangle_{\text{PDF}}$$</p>
-<p><strong>Annealing</strong>: Alternating layers of cost operator $U_q(\gamma)$ and XY mixer $U_d(\beta)$:</p>
-<p>$$U_{\text{DQA}}(T) = \prod_{t=0}^{T-1} U_q(s_t) \cdot U_d(1 - s_t), \quad s_t = t/T$$</p>
+<p>DQA prepares a quantum state <span class="arithmatex">\(|\tilde{\psi}_x^*\rangle\)</span> that approximates the optimal second-stage decisions in superposition.</p>
+<p><strong>Initialization</strong>: Dicke state <span class="arithmatex">\(|D_n^k\rangle\)</span> — uniform superposition over all <span class="arithmatex">\(\binom{n}{k}\)</span> feasible turbine commitments:</p>
+<div class="arithmatex">\[|D_n^k\rangle = \frac{1}{\sqrt{\binom{n}{k}}} \sum_{|y|=k} |y\rangle \otimes |\xi\rangle_{\text{PDF}}\]</div>
+<p><strong>Annealing</strong>: Alternating layers of cost operator <span class="arithmatex">\(U_q(\gamma)\)</span> and XY mixer <span class="arithmatex">\(U_d(\beta)\)</span>:</p>
+<div class="arithmatex">\[U_{\text{DQA}}(T) = \prod_{t=0}^{T-1} U_q(s_t) \cdot U_d(1 - s_t), \quad s_t = t/T\]</div>
 <ul>
-<li>$U_q(\gamma)$ encodes second-stage costs as phases via CP gates (Eq. 42)</li>
-<li>$U_d(\beta)$ uses SWAP$^\beta$ to mix turbine decisions while preserving $\sum y_j = k$ (Eq. 39)</li>
+<li><span class="arithmatex">\(U_q(\gamma)\)</span> encodes second-stage costs as phases via CP gates (Eq. 42)</li>
+<li><span class="arithmatex">\(U_d(\beta)\)</span> uses SWAP<span class="arithmatex">\(^\beta\)</span> to mix turbine decisions while preserving <span class="arithmatex">\(\sum y_j = k\)</span> (Eq. 39)</li>
 </ul>
-<p><strong>Output</strong>: $|\tilde{\psi}_x^*\rangle$ with expected energy $\langle H_Q \rangle = \phi(x) + \delta$ where $\delta \geq 0$ is the residual temperature.</p>
+<p><strong>Output</strong>: <span class="arithmatex">\(|\tilde{\psi}_x^*\rangle\)</span> with expected energy <span class="arithmatex">\(\langle H_Q \rangle = \phi(x) + \delta\)</span> where <span class="arithmatex">\(\delta \geq 0\)</span> is the residual temperature.</p>
 <hr />
 <h2 id="step-2-oracle-encoding-cost-as-amplitude">Step 2: Oracle — Encoding cost as amplitude<a class="headerlink" href="#step-2-oracle-encoding-cost-as-amplitude" title="Permanent link">&para;</a></h2>
-<p>The oracle $\mathcal{F}$ rotates an ancilla qubit so that:</p>
-<p>$$\mathcal{F}|y\rangle|\xi\rangle|0\rangle_\text{anc} = |y\rangle|\xi\rangle!\left(\sqrt{1-\bar{q}}\,|0\rangle + \sqrt{\bar{q}}\,|1\rangle\right)$$</p>
-<p>where $\bar{q} = q(y,\xi)/q_{\max} \in [0,1]$. After $\mathcal{F}$: $\Pr[\text{ancilla}=|1\rangle] = \bar{q}$.</p>
+<p>The oracle <span class="arithmatex">\(\mathcal{F}\)</span> rotates an ancilla qubit so that:</p>
+<div class="arithmatex">\[\mathcal{F}|y\rangle|\xi\rangle|0\rangle_\text{anc} = |y\rangle|\xi\rangle\!\left(\sqrt{1-\bar{q}}\,|0\rangle + \sqrt{\bar{q}}\,|1\rangle\right)\]</div>
+<p>where <span class="arithmatex">\(\bar{q} = q(y,\xi)/q_{\max} \in [0,1]\)</span>. After <span class="arithmatex">\(\mathcal{F}\)</span>: <span class="arithmatex">\(\Pr[\text{ancilla}=|1\rangle] = \bar{q}\)</span>.</p>
 <p>Two oracle variants:</p>
 <table>
 <thead>
@@ -1046,34 +1046,34 @@
 </thead>
 <tbody>
 <tr>
-<td>$\mathcal{F}_\text{exact}$</td>
-<td>$O(2^{2n_y})$ multi-controlled RY</td>
+<td><span class="arithmatex">\(\mathcal{F}_\text{exact}\)</span></td>
+<td><span class="arithmatex">\(O(2^{2n_y})\)</span> multi-controlled RY</td>
 <td>Exact</td>
 </tr>
 <tr>
-<td>$\mathcal{F}_\text{sin}$</td>
-<td>$O(n_y)$ CCRY pairs</td>
+<td><span class="arithmatex">\(\mathcal{F}_\text{sin}\)</span></td>
+<td><span class="arithmatex">\(O(n_y)\)</span> CCRY pairs</td>
 <td>Approximate (small-angle)</td>
 </tr>
 </tbody>
 </table>
 <hr />
 <h2 id="step-3-qae-quantum-amplitude-estimation">Step 3: QAE — Quantum Amplitude Estimation<a class="headerlink" href="#step-3-qae-quantum-amplitude-estimation" title="Permanent link">&para;</a></h2>
-<p>QAE estimates $a = \mathbb{E}[\bar{q}]$ (the normalized expected cost) with error $O(1/M)$ using $M$ circuit evaluations — quadratically better than classical Monte Carlo.</p>
-<p><strong>Grover operator</strong>: $\mathcal{Q} = \mathcal{A} S_0 \mathcal{A}^\dagger S_{\psi_0}$ rotates the state by $2\theta_a$ per application, where $a = \sin^2(\theta_a)$.</p>
+<p>QAE estimates <span class="arithmatex">\(a = \mathbb{E}[\bar{q}]\)</span> (the normalized expected cost) with error <span class="arithmatex">\(O(1/M)\)</span> using <span class="arithmatex">\(M\)</span> circuit evaluations — quadratically better than classical Monte Carlo.</p>
+<p><strong>Grover operator</strong>: <span class="arithmatex">\(\mathcal{Q} = \mathcal{A} S_0 \mathcal{A}^\dagger S_{\psi_0}\)</span> rotates the state by <span class="arithmatex">\(2\theta_a\)</span> per application, where <span class="arithmatex">\(a = \sin^2(\theta_a)\)</span>.</p>
 <p><strong>QPE circuit</strong> (Fig. 2 of paper):</p>
 <ol>
-<li>$H^{\otimes m}$ on $m$ estimate qubits</li>
-<li>Apply $\mathcal{A} = \mathcal{F} \cdot U_\text{DQA}$ once</li>
-<li>Controlled-$\mathcal{Q}^{2^j}$ for $j = 0, \ldots, m-1$</li>
+<li><span class="arithmatex">\(H^{\otimes m}\)</span> on <span class="arithmatex">\(m\)</span> estimate qubits</li>
+<li>Apply <span class="arithmatex">\(\mathcal{A} = \mathcal{F} \cdot U_\text{DQA}\)</span> once</li>
+<li>Controlled-<span class="arithmatex">\(\mathcal{Q}^{2^j}\)</span> for <span class="arithmatex">\(j = 0, \ldots, m-1\)</span></li>
 <li>Inverse QFT on estimate qubits</li>
-<li>Measure $b$ → $\tilde{a} = \sin^2(b\pi/2^m)$ → $\tilde{\phi}(x) = \tilde{a} \cdot q_{\max}$</li>
+<li>Measure <span class="arithmatex">\(b\)</span> → <span class="arithmatex">\(\tilde{a} = \sin^2(b\pi/2^m)\)</span> → <span class="arithmatex">\(\tilde{\phi}(x) = \tilde{a} \cdot q_{\max}\)</span></li>
 </ol>
-<p><strong>Complexity</strong>: $M = 2^m$ circuit evaluations, error $O(1/M)$ vs classical $O(1/\sqrt{M})$.</p>
+<p><strong>Complexity</strong>: <span class="arithmatex">\(M = 2^m\)</span> circuit evaluations, error <span class="arithmatex">\(O(1/M)\)</span> vs classical <span class="arithmatex">\(O(1/\sqrt{M})\)</span>.</p>
 <hr />
 <h2 id="convergence">Convergence<a class="headerlink" href="#convergence" title="Permanent link">&para;</a></h2>
-<p>As $T \to \infty$ (more DQA steps), the residual $\delta \to 0$ and $\tilde{\phi}(x) \to \phi(x)$.
-As $m \to \infty$ (more QPE qubits), QAE error $\to 0$ with only $M = 2^m$ total evaluations.</p>
+<p>As <span class="arithmatex">\(T \to \infty\)</span> (more DQA steps), the residual <span class="arithmatex">\(\delta \to 0\)</span> and <span class="arithmatex">\(\tilde{\phi}(x) \to \phi(x)\)</span>.
+As <span class="arithmatex">\(m \to \infty\)</span> (more QPE qubits), QAE error <span class="arithmatex">\(\to 0\)</span> with only <span class="arithmatex">\(M = 2^m\)</span> total evaluations.</p>
 <p>See <a href="https://arxiv.org/abs/2402.15029">Fig. 4 in arXiv:2402.15029</a> for empirical convergence curves.</p>
 
 
@@ -1150,6 +1150,10 @@ As $m \to \infty$ (more QPE qubits), QAE error $\to 0$ with only $M = 2^m$ total
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

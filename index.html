@@ -1041,9 +1041,9 @@ The algorithms combine <strong>Discrete Quantum Annealing (DQA)</strong> with <s
 <p>Based on: <a href="https://arxiv.org/abs/2402.15029">arXiv 2402.15029</a> — <em>"Quantum algorithms for the two-stage stochastic unit commitment problem"</em></p>
 <hr />
 <h2 id="problem-description">Problem Description<a class="headerlink" href="#problem-description" title="Permanent link">&para;</a></h2>
-<p>The <strong>Unit Commitment</strong> problem decides which gas generators to commit before uncertain wind power is realised (first-stage decision $x$), then dispatches all generators optimally for each realised scenario (second-stage recourse $y$).</p>
-<p>$$\min_{x,y} \; c_x^\top x + \mathbb{E}_\xi!\left[\min_r c_r r(\xi) \right] \quad \text{s.t.} \quad \sum_j y_j(\xi) + r(\xi) = d, \quad y_j(\xi) \le \xi_j$$</p>
-<p>The quantum algorithm evaluates $\mathbb{E}[C(x,\xi)]$ via QAE in $O(1/\epsilon)$ circuit evaluations rather than the $O(1/\epsilon^2)$ shots needed classically.</p>
+<p>The <strong>Unit Commitment</strong> problem decides which gas generators to commit before uncertain wind power is realised (first-stage decision <span class="arithmatex">\(x\)</span>), then dispatches all generators optimally for each realised scenario (second-stage recourse <span class="arithmatex">\(y\)</span>).</p>
+<div class="arithmatex">\[\min_{x,y} \; c_x^\top x + \mathbb{E}_\xi\!\left[\min_r c_r r(\xi) \right] \quad \text{s.t.} \quad \sum_j y_j(\xi) + r(\xi) = d, \quad y_j(\xi) \le \xi_j\]</div>
+<p>The quantum algorithm evaluates <span class="arithmatex">\(\mathbb{E}[C(x,\xi)]\)</span> via QAE in <span class="arithmatex">\(O(1/\epsilon)\)</span> circuit evaluations rather than the <span class="arithmatex">\(O(1/\epsilon^2)\)</span> shots needed classically.</p>
 <hr />
 <h2 id="repository-structure">Repository Structure<a class="headerlink" href="#repository-structure" title="Permanent link">&para;</a></h2>
 <p>Two implementations exist:</p>
@@ -1188,6 +1188,10 @@ The algorithms combine <strong>Discrete Quantum Annealing (DQA)</strong> with <s
     
     
       <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

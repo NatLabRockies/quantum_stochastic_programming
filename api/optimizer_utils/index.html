@@ -2548,7 +2548,7 @@ Return a circuit which does phase amplitude*(this-value) if this &gt; value, oth
 and provides utilities for normalizing costs, evaluating the classical solution,
 and post-processing quantum measurement results.</p>
 <p>The single-bus approximation ignores transmission losses, so every generator
-contributes directly to meeting total demand $d$.</p>
+contributes directly to meeting total demand <span class="arithmatex">\(d\)</span>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2615,7 +2615,7 @@ contributes directly to meeting total demand $d$.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Penalty cost per unit of unmet demand (recourse cost $c_r$).</p>
+                <p>Penalty cost per unit of unmet demand (recourse cost <span class="arithmatex">\(c_r\)</span>).</p>
               </div>
             </td>
             <td>
@@ -2630,7 +2630,7 @@ contributes directly to meeting total demand $d$.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Total demand $d$ that must be met.</p>
+                <p>Total demand <span class="arithmatex">\(d\)</span> that must be met.</p>
               </div>
             </td>
             <td>
@@ -2645,7 +2645,7 @@ contributes directly to meeting total demand $d$.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Dict mapping scenario tuples $(\xi_0, \xi_1, \ldots)$ to probabilities.</p>
+                <p>Dict mapping scenario tuples <span class="arithmatex">\((\xi_0, \xi_1, \ldots)\)</span> to probabilities.</p>
               </div>
             </td>
             <td>
@@ -3222,6 +3222,10 @@ It is the quantum optimizer's job to create a histogram of gas decisions.</p>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

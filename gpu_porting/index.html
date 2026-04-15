@@ -1038,7 +1038,7 @@ using NVIDIA cuStateVec (cuQuantum) for GPU-accelerated simulation.</p>
 <li><code>qiskit_impl/binary_optimizer.py</code> → <code>execute_optimizer()</code>, <code>execute_optimizer_oracle()</code>, <code>execute_qae()</code></li>
 <li><code>QuantumExpectedValueFunctionProject/dense_optimizer.py</code> → all <code>solveAnnealing*()</code> methods</li>
 </ul>
-<p>Expected speedup: <strong>5–50×</strong> for circuits with $n \geq 20$ qubits. Risk: <strong>zero</strong> — pure backend swap.</p>
+<p>Expected speedup: <strong>5–50×</strong> for circuits with <span class="arithmatex">\(n \geq 20\)</span> qubits. Risk: <strong>zero</strong> — pure backend swap.</p>
 <hr />
 <h3 id="tier-2-transpile-once-parametervector-binding">Tier 2 — Transpile once + <code>ParameterVector</code> binding<a class="headerlink" href="#tier-2-transpile-once-parametervector-binding" title="Permanent link">&para;</a></h3>
 <p>Inside DQA time-step loops, sub-circuits are currently rebuilt with numeric angles each iteration.
@@ -1153,6 +1153,10 @@ The fix — demonstrated in <code>bayesianQC/optimize_10epoch_performance.py</co
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

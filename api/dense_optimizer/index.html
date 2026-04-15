@@ -1232,7 +1232,7 @@ that makes QAE applicable.</p>
         <p>Quantum optimizer that keeps wind scenarios in superposition (dense encoding).</p>
 <p>Encodes gas + wind turbine decisions in decision registers and wind scenarios
 in a PDF register, all in the same quantum state simultaneously.  The PDF
-register is initialized with $\sqrt{\Pr[\xi]}$ amplitudes so that measuring
+register is initialized with <span class="arithmatex">\(\sqrt{\Pr[\xi]}\)</span> amplitudes so that measuring
 the decision register alone gives the marginal over scenarios.</p>
 <p>This is the approach that makes QAE applicable: the oracle only needs to act
 on the combined system, and the expected cost appears as the amplitude on the
@@ -4158,6 +4158,10 @@ Given the gas decisions results, choose the most common gas output</p>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>
