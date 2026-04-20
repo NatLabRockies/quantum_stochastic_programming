@@ -415,31 +415,35 @@ pip install pytket qualtran
 import numpy as np
 from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
 
-# Define a 2-turbine problem with uniform scenarios
+# Problem: 2 wind turbines, total demand = 2 MW (both turbines needed).
+# Each turbine produces exactly 1 MW when ON and wind is available (ξ_j = 1).
 n = 2
-pdf = {(0,0):0.25, (0,1):0.25, (1,0):0.25, (1,1):0.25}
-cy  = np.linspace(0.01, 0.10, n)    # wind cost coefficients
-cr  = 1.0                            # recourse cost
-cx  = [0.4]                          # dummy gas cost
+pdf = {(0,0): 0.25,   # no wind for either turbine
+       (0,1): 0.25,   # wind only for turbine 1
+       (1,0): 0.25,   # wind only for turbine 0
+       (1,1): 0.25}   # wind available for both turbines
+cy  = np.linspace(0.01, 0.10, n)    # wind dispatch costs per turbine ($/MWh)
+cr  = 1.0                            # recourse cost for unmet demand ($/MWh)
+cx  = [0.4]                          # gas generator commitment cost ($/MW)
 
-bno = BinaryNestedOptimizer(cx, cy, cr, pdf, demand=1, is_uniform=True)
+bno = BinaryNestedOptimizer(cx, cy, cr, pdf, demand=2, is_uniform=True)
 
 # 1. Build the DQA state-preparation circuit
-qc = bno.adiabatic_evolution_circuit(wind_demand=1, time=100, time_steps=4, norm=10)
+qc = bno.adiabatic_evolution_circuit(wind_demand=2, time=100, time_steps=4, norm=10)
 
 # 2. Execute the DQA circuit and extract expectation value
 counts = bno.execute_optimizer(qc, num_meas=8192)
-exp_val = bno.process_expectation_value_optimizer(wind_demand=1, counts=counts)
+exp_val = bno.process_expectation_value_optimizer(wind_demand=2, counts=counts)
 print(f"Expected cost (DQA):           {exp_val:.4f}")
 
 # 3. Classical brute-force reference
 ev_true = bno.brute_force_wind_demand_expectation_values()
-print(f"Expected cost (brute force):   {ev_true[1]:.4f}")
+print(f"Expected cost (brute force):   {ev_true[2]:.4f}")   # index 2 = demand=2
 
 # 4. Full QAE pipeline
 oracle  = bno.single_oracle_sin_inconstraint(c=0.5, norm=10)
 orc_inv = bno.single_oracle_sin_inconstraint(c=0.5, norm=10, inverse=True)
-uopt    = bno.adiabatic_evolution_circuit(wind_demand=1, time=100, time_steps=4, norm=10)
+uopt    = bno.adiabatic_evolution_circuit(wind_demand=2, time=100, time_steps=4, norm=10)
 qae_qc  = bno.canonical_qae(uopt, oracle, m=3, c=0.5, norm=10)
 amplitude = bno.execute_qae(qae_qc, m=3, num_meas=8192)
 print(f"QAE amplitude estimate:        {amplitude:.4f}")
