@@ -513,6 +513,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#running-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the Code
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running the Code">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-here-active-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start here (active implementation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-reference-notebooks-original-paper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy / reference notebooks (original paper)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convergence-experiment-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convergence experiment (script)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#navigation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1132,6 +1182,50 @@ The algorithms combine <strong>Discrete Quantum Annealing (DQA)</strong> with <s
 <h3 id="local">Local<a class="headerlink" href="#local" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>qiskit&gt;<span class="o">=</span><span class="m">2</span>.0<span class="w"> </span>qiskit-aer<span class="w"> </span>qiskit-algorithms<span class="w"> </span>matplotlib<span class="w"> </span>scipy<span class="w"> </span>numpy
 </code></pre></div>
+<hr />
+<h2 id="running-the-code">Running the Code<a class="headerlink" href="#running-the-code" title="Permanent link">&para;</a></h2>
+<h3 id="start-here-active-implementation">Start here (active implementation)<a class="headerlink" href="#start-here-active-implementation" title="Permanent link">&para;</a></h3>
+<p><strong><code>qiskit_impl/qae_example.ipynb</code></strong> — the main end-to-end notebook. Walks through the full algorithm (DQA + QAE) using the current <code>qiskit_impl/</code> codebase. Run this first.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>qiskit_impl
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>jupyter<span class="w"> </span>notebook<span class="w"> </span>qae_example.ipynb
+</code></pre></div>
+<h3 id="legacy-reference-notebooks-original-paper">Legacy / reference notebooks (original paper)<a class="headerlink" href="#legacy-reference-notebooks-original-paper" title="Permanent link">&para;</a></h3>
+<p>These are in <code>QuantumExpectedValueFunctionProject/</code> and use an older Qiskit API (may need import fixes):</p>
+<table>
+<thead>
+<tr>
+<th>Notebook</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>four_binary_turbines_uniform_distribution_tutorial.ipynb</code></td>
+<td>Step-by-step tutorial: 4 turbines, uniform wind distribution</td>
+</tr>
+<tr>
+<td><code>ExpValFun_QAOA_QAE_computations.ipynb</code></td>
+<td>Reproduces the numerical results from the paper</td>
+</tr>
+<tr>
+<td><code>ExpValFun_QAOA_QAE_figures.ipynb</code></td>
+<td>Generates the paper's figures from saved computation data</td>
+</tr>
+<tr>
+<td><code>simple_UC_model.ipynb</code></td>
+<td>Minimal classical unit commitment reference</td>
+</tr>
+<tr>
+<td><code>SED_classical_solution.ipynb</code></td>
+<td>Classical SED (stochastic economic dispatch) baseline</td>
+</tr>
+</tbody>
+</table>
+<h3 id="convergence-experiment-script">Convergence experiment (script)<a class="headerlink" href="#convergence-experiment-script" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd</span><span class="w"> </span>QuantumExpectedValueFunctionProject
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>python<span class="w"> </span>experiment_convergence.py
+</code></pre></div>
+Runs DQA convergence sweeps over annealing depth and time steps, producing the data behind Fig. 3 of the paper.</p>
 <hr />
 <h2 id="navigation">Navigation<a class="headerlink" href="#navigation" title="Permanent link">&para;</a></h2>
 <ul>
