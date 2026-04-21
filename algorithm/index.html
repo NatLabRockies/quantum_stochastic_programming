@@ -1010,71 +1010,237 @@
 
 
 <h1 id="algorithm-overview">Algorithm Overview<a class="headerlink" href="#algorithm-overview" title="Permanent link">&para;</a></h1>
+<p>All examples on this page use the same small problem from the <a href="../">Quick Start</a>:
+- 2 wind turbines, demand = 2 MW
+- <code>gas_costs = [0.4]</code>, <code>wind_costs = [0.05, 0.10]</code>, <code>recourse_cost = 1.0</code>
+- 4 equally-likely wind scenarios: <code>(0,0)</code>, <code>(0,1)</code>, <code>(1,0)</code>, <code>(1,1)</code> each with probability 0.25</p>
+<hr />
 <h2 id="two-stage-stochastic-optimization">Two-Stage Stochastic Optimization<a class="headerlink" href="#two-stage-stochastic-optimization" title="Permanent link">&para;</a></h2>
-<p>The algorithm solves a two-stage stochastic program:</p>
-<ul>
-<li><strong>First stage</strong> (<span class="arithmatex">\(x\)</span>): Commit gas generators before wind is realized. Cost = <span class="arithmatex">\(c_x^\top x\)</span>.</li>
-<li><strong>Second stage</strong> (<span class="arithmatex">\(y, r\)</span>): Given <span class="arithmatex">\(x\)</span> and realized wind <span class="arithmatex">\(\xi\)</span>, choose turbine dispatch <span class="arithmatex">\(y\)</span> and recourse <span class="arithmatex">\(r\)</span> to meet demand <span class="arithmatex">\(d\)</span>. Cost = <span class="arithmatex">\(\sum_j c_y^j y_j \xi_j + c_r r\)</span>.</li>
-<li><strong>Objective</strong>: <span class="arithmatex">\(\min_x \left[ c_x^\top x + \mathbb{E}_\xi[\min_y q(x, y, \xi)] \right]\)</span></li>
-</ul>
-<p>The key difficulty is computing <span class="arithmatex">\(\phi(x) = \mathbb{E}_\xi[\min_y q(x,y,\xi)]\)</span>: the min is <em>inside</em> the expectation, making classical Monte Carlo require <span class="arithmatex">\(O(1/\epsilon^2)\)</span> samples.</p>
+<p>The problem has two decisions made at different times:</p>
+<p><strong>First stage — before wind is known (<span class="arithmatex">\(x\)</span>)</strong></p>
+<p>Commit the gas generator for <span class="arithmatex">\(x\)</span> MW at cost <span class="arithmatex">\(c_x \cdot x\)</span>.
+With <code>gas_costs = [0.4]</code> and <code>demand = 2</code>:</p>
+<table>
+<thead>
+<tr>
+<th><span class="arithmatex">\(x\)</span></th>
+<th>Gas committed</th>
+<th>Gas cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0 MW</td>
+<td>$0.00</td>
+</tr>
+<tr>
+<td>1</td>
+<td>1 MW</td>
+<td>$0.40</td>
+</tr>
+<tr>
+<td>2</td>
+<td>2 MW</td>
+<td>$0.80</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Second stage — after wind is revealed (<span class="arithmatex">\(y\)</span>, <span class="arithmatex">\(r\)</span>)</strong></p>
+<p>Given <span class="arithmatex">\(x\)</span> and the actual wind scenario <span class="arithmatex">\(\xi\)</span>, decide which turbines to dispatch (<span class="arithmatex">\(y_j \in \{0,1\}\)</span>) and how much recourse <span class="arithmatex">\(r\)</span> (expensive backup power) to buy to cover the shortfall.</p>
+<p>With <span class="arithmatex">\(x = 0\)</span> (no gas), the wind must cover all 2 MW. For each scenario:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario <span class="arithmatex">\(\xi\)</span></th>
+<th>Best dispatch <span class="arithmatex">\(y^*\)</span></th>
+<th>Wind output</th>
+<th>Shortfall <span class="arithmatex">\(r\)</span></th>
+<th>Second-stage cost <span class="arithmatex">\(q\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>(0,0)</code> — no wind</td>
+<td><code>[0,0]</code> (both off)</td>
+<td>0 MW</td>
+<td>2 MW</td>
+<td><span class="arithmatex">\(1.0 \times 2 = \$2.00\)</span></td>
+</tr>
+<tr>
+<td><code>(0,1)</code> — turbine 1 only</td>
+<td><code>[0,1]</code></td>
+<td>1 MW</td>
+<td>1 MW</td>
+<td><span class="arithmatex">\(0.10 + 1.0 \times 1 = \$1.10\)</span></td>
+</tr>
+<tr>
+<td><code>(1,0)</code> — turbine 0 only</td>
+<td><code>[1,0]</code></td>
+<td>1 MW</td>
+<td>1 MW</td>
+<td><span class="arithmatex">\(0.05 + 1.0 \times 1 = \$1.05\)</span></td>
+</tr>
+<tr>
+<td><code>(1,1)</code> — both turbines</td>
+<td><code>[1,1]</code></td>
+<td>2 MW</td>
+<td>0 MW</td>
+<td><span class="arithmatex">\(0.05 + 0.10 = \$0.15\)</span></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Objective</strong>: minimize total cost = gas cost + expected second-stage cost</p>
+<div class="arithmatex">\[\min_x \left[ c_x \cdot x + \underbrace{\mathbb{E}_\xi\!\left[\min_y\, q(x,y,\xi)\right]}_{\phi(x)} \right]\]</div>
+<p>For <span class="arithmatex">\(x = 0\)</span>: <span class="arithmatex">\(\phi(0) = 0.25 \times (2.00 + 1.10 + 1.05 + 0.15) = 0.25 \times 4.30 = \$1.075\)</span></p>
+<p>Total cost for <span class="arithmatex">\(x=0\)</span>: <span class="arithmatex">\(0 + 1.075 = \$1.075\)</span></p>
+<p>The algorithm must compute <span class="arithmatex">\(\phi(x)\)</span> for each candidate <span class="arithmatex">\(x\)</span> — this is the hard part, because the <span class="arithmatex">\(\min\)</span> over <span class="arithmatex">\(y\)</span> is <em>inside</em> the expectation over <span class="arithmatex">\(\xi\)</span>. Every scenario needs its own optimal dispatch, and classical Monte Carlo needs <span class="arithmatex">\(O(1/\epsilon^2)\)</span> samples to estimate this accurately.</p>
 <hr />
 <h2 id="step-1-dqa-discrete-quantum-annealing">Step 1: DQA — Discrete Quantum Annealing<a class="headerlink" href="#step-1-dqa-discrete-quantum-annealing" title="Permanent link">&para;</a></h2>
-<p>DQA prepares a quantum state <span class="arithmatex">\(|\tilde{\psi}_x^*\rangle\)</span> that approximates the optimal second-stage decisions in superposition.</p>
-<p><strong>Initialization</strong>: Dicke state <span class="arithmatex">\(|D_n^k\rangle\)</span> — uniform superposition over all <span class="arithmatex">\(\binom{n}{k}\)</span> feasible turbine commitments:</p>
-<div class="arithmatex">\[|D_n^k\rangle = \frac{1}{\sqrt{\binom{n}{k}}} \sum_{|y|=k} |y\rangle \otimes |\xi\rangle_{\text{PDF}}\]</div>
-<p><strong>Annealing</strong>: Alternating layers of cost operator <span class="arithmatex">\(U_q(\gamma)\)</span> and XY mixer <span class="arithmatex">\(U_d(\beta)\)</span>:</p>
-<div class="arithmatex">\[U_{\text{DQA}}(T) = \prod_{t=0}^{T-1} U_q(s_t) \cdot U_d(1 - s_t), \quad s_t = t/T\]</div>
+<p>DQA's job is to prepare a quantum state whose <strong>average energy equals <span class="arithmatex">\(\phi(x)\)</span></strong>.</p>
+<p><strong>What is a quantum state here?</strong>
+The quantum computer holds a superposition over all possible turbine dispatch decisions <span class="arithmatex">\(y\)</span>. Each basis state <span class="arithmatex">\(|y\rangle|\xi\rangle\)</span> represents one specific dispatch <span class="arithmatex">\(y\)</span> under one specific wind scenario <span class="arithmatex">\(\xi\)</span>, and has a complex amplitude (probability weight).</p>
+<p><strong>Initialization — Dicke state <span class="arithmatex">\(|D_n^k\rangle\)</span></strong></p>
+<p>Start with a <em>uniform</em> superposition over all feasible dispatches (those satisfying <span class="arithmatex">\(\sum y_j = k\)</span>, where <span class="arithmatex">\(k = \text{wind\_demand}\)</span>). With <span class="arithmatex">\(k=2\)</span> (both turbines needed), there is only one feasible dispatch: <span class="arithmatex">\(y = [1,1]\)</span>. The wind scenarios are loaded with amplitudes proportional to <span class="arithmatex">\(\sqrt{\Pr[\xi]}\)</span>.</p>
+<p>With our uniform distribution, the initial state is:</p>
+<div class="arithmatex">\[|D_2^2\rangle \otimes |\text{pdf}\rangle = |11\rangle \otimes \frac{1}{2}\!\left(|00\rangle + |01\rangle + |10\rangle + |11\rangle\right)\]</div>
+<p>Each of the 4 terms has equal amplitude <span class="arithmatex">\(\frac{1}{2}\)</span>, so each scenario is equally likely.</p>
+<p><strong>Annealing — alternating cost and mixer layers</strong></p>
+<p>The circuit applies <span class="arithmatex">\(T\)</span> Trotter steps. At step <span class="arithmatex">\(t\)</span> out of <span class="arithmatex">\(T\)</span>, the schedule parameter is <span class="arithmatex">\(s_t = t/T\)</span> (goes from 0 to 1):</p>
+<div class="arithmatex">\[U_{\text{DQA}}(T) = \underbrace{U_q(s_{T-1}) \cdot U_d(1-s_{T-1})}_{\text{last step, mostly cost}} \cdots \underbrace{U_q(s_0) \cdot U_d(1-s_0)}_{\text{first step, mostly mixing}}\]</div>
 <ul>
-<li><span class="arithmatex">\(U_q(\gamma)\)</span> encodes second-stage costs as phases via CP gates (Eq. 42)</li>
-<li><span class="arithmatex">\(U_d(\beta)\)</span> uses SWAP<span class="arithmatex">\(^\beta\)</span> to mix turbine decisions while preserving <span class="arithmatex">\(\sum y_j = k\)</span> (Eq. 39)</li>
+<li><strong><span class="arithmatex">\(U_q(\gamma)\)</span> — cost operator</strong>: adds a phase <span class="arithmatex">\(e^{-i\gamma \cdot q(y,\xi)}\)</span> to each basis state proportional to its cost. States with <em>lower</em> cost accumulate <em>less</em> phase → they are relatively amplified over many steps.</li>
 </ul>
-<p><strong>Output</strong>: <span class="arithmatex">\(|\tilde{\psi}_x^*\rangle\)</span> with expected energy <span class="arithmatex">\(\langle H_Q \rangle = \phi(x) + \delta\)</span> where <span class="arithmatex">\(\delta \geq 0\)</span> is the residual temperature.</p>
+<p><em>Concretely</em>: state <span class="arithmatex">\(|11\rangle|11\rangle\)</span> (both turbines dispatch, both have wind, cost $0.15) gets a small phase; state <span class="arithmatex">\(|11\rangle|00\rangle\)</span> (both dispatch, no wind, cost $2.00) gets a large phase.</p>
+<ul>
+<li><strong><span class="arithmatex">\(U_d(\beta)\)</span> — XY mixer</strong>: swaps amplitude between different dispatch decisions while keeping <span class="arithmatex">\(\sum y_j = k\)</span> fixed (the demand constraint is never violated). Early in annealing (<span class="arithmatex">\(s_t \approx 0\)</span>), mixing is strong so the state explores broadly. Late in annealing (<span class="arithmatex">\(s_t \approx 1\)</span>), the cost operator dominates and the state concentrates on low-cost solutions.</li>
+</ul>
+<p><strong>Output</strong></p>
+<p>After <span class="arithmatex">\(T\)</span> steps, the state <span class="arithmatex">\(|\tilde{\psi}_x^*\rangle\)</span> has most amplitude on low-cost <span class="arithmatex">\((y, \xi)\)</span> pairs. Its expected energy is:</p>
+<div class="arithmatex">\[\langle H_Q \rangle = \phi(x) + \delta\]</div>
+<p>where <span class="arithmatex">\(\delta \geq 0\)</span> is the <em>residual temperature</em> — the error from finite annealing depth. With <span class="arithmatex">\(T=4\)</span> steps, <span class="arithmatex">\(\delta\)</span> is small but nonzero. With <span class="arithmatex">\(T \to \infty\)</span>, <span class="arithmatex">\(\delta \to 0\)</span>.</p>
 <hr />
 <h2 id="step-2-oracle-encoding-cost-as-amplitude">Step 2: Oracle — Encoding cost as amplitude<a class="headerlink" href="#step-2-oracle-encoding-cost-as-amplitude" title="Permanent link">&para;</a></h2>
-<p>The oracle <span class="arithmatex">\(\mathcal{F}\)</span> rotates an ancilla qubit so that:</p>
-<div class="arithmatex">\[\mathcal{F}|y\rangle|\xi\rangle|0\rangle_\text{anc} = |y\rangle|\xi\rangle\!\left(\sqrt{1-\bar{q}}\,|0\rangle + \sqrt{\bar{q}}\,|1\rangle\right)\]</div>
-<p>where <span class="arithmatex">\(\bar{q} = q(y,\xi)/q_{\max} \in [0,1]\)</span>. After <span class="arithmatex">\(\mathcal{F}\)</span>: <span class="arithmatex">\(\Pr[\text{ancilla}=|1\rangle] = \bar{q}\)</span>.</p>
-<p>Two oracle variants:</p>
+<p>To use QAE, we need to turn the <em>cost</em> of each scenario into a <em>probability</em> on an extra qubit (the ancilla).</p>
+<p>The oracle <span class="arithmatex">\(\mathcal{F}\)</span> does this by rotating the ancilla qubit by an angle that depends on the cost:</p>
+<div class="arithmatex">\[\mathcal{F}|y\rangle|\xi\rangle\underbrace{|0\rangle}_\text{ancilla} \;\longrightarrow\; |y\rangle|\xi\rangle\!\left(\sqrt{1-\bar{q}}\,|0\rangle + \sqrt{\bar{q}}\,|1\rangle\right)\]</div>
+<p>where <span class="arithmatex">\(\bar{q} = q(y,\xi) / q_{\max} \in [0,1]\)</span> is the normalized cost. After the oracle:</p>
+<div class="arithmatex">\[\Pr[\text{ancilla} = |1\rangle] = \bar{q}\]</div>
+<p><strong>Concrete example</strong> with <span class="arithmatex">\(q_{\max} = 3.0\)</span>:</p>
+<p>| State <span class="arithmatex">\(|y\rangle|\xi\rangle\)</span> | Cost <span class="arithmatex">\(q\)</span> | <span class="arithmatex">\(\bar{q} = q/3\)</span> | Ancilla rotation angle <span class="arithmatex">\(2\arcsin(\sqrt{\bar{q}})\)</span> |
+|------------------------------|----------|-----------------|---------------------------------------------------|
+| <span class="arithmatex">\(|11\rangle|11\rangle\)</span>        | $0.15   | 0.050           | 0.45 rad |
+| <span class="arithmatex">\(|11\rangle|10\rangle\)</span>        | $1.05   | 0.350           | 1.28 rad |
+| <span class="arithmatex">\(|11\rangle|01\rangle\)</span>        | $1.10   | 0.367           | 1.31 rad |
+| <span class="arithmatex">\(|11\rangle|00\rangle\)</span>        | $2.00   | 0.667           | 1.91 rad |</p>
+<p>After <span class="arithmatex">\(\mathcal{F}\)</span> acts on the full superposition, the <em>average</em> probability of ancilla = <span class="arithmatex">\(|1\rangle\)</span> equals <span class="arithmatex">\(\mathbb{E}[\bar{q}] = \phi(x)/q_{\max}\)</span> — the normalised expected cost. This is the number QAE will estimate.</p>
+<p><strong>Two oracle variants:</strong></p>
 <table>
 <thead>
 <tr>
 <th>Oracle</th>
+<th>Method</th>
 <th>Gates</th>
-<th>Accuracy</th>
+<th>When to use</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><span class="arithmatex">\(\mathcal{F}_\text{exact}\)</span></td>
-<td><span class="arithmatex">\(O(2^{2n_y})\)</span> multi-controlled RY</td>
-<td>Exact</td>
+<td>Multi-controlled RY per basis state</td>
+<td><span class="arithmatex">\(O(2^{2n_y})\)</span> — grows exponentially</td>
+<td>Small problems, exact benchmarking</td>
 </tr>
 <tr>
 <td><span class="arithmatex">\(\mathcal{F}_\text{sin}\)</span></td>
-<td><span class="arithmatex">\(O(n_y)\)</span> CCRY pairs</td>
-<td>Approximate (small-angle)</td>
+<td>One CCRY pair per turbine</td>
+<td><span class="arithmatex">\(O(n_y)\)</span> — constant per turbine</td>
+<td>Large problems, practical use</td>
 </tr>
 </tbody>
 </table>
+<p><span class="arithmatex">\(\mathcal{F}_\text{sin}\)</span> works because the cost is a <em>sum</em> over independent turbines — each turbine's contribution can be encoded separately, and the rotations add up.</p>
 <hr />
 <h2 id="step-3-qae-quantum-amplitude-estimation">Step 3: QAE — Quantum Amplitude Estimation<a class="headerlink" href="#step-3-qae-quantum-amplitude-estimation" title="Permanent link">&para;</a></h2>
-<p>QAE estimates <span class="arithmatex">\(a = \mathbb{E}[\bar{q}]\)</span> (the normalized expected cost) with error <span class="arithmatex">\(O(1/M)\)</span> using <span class="arithmatex">\(M\)</span> circuit evaluations — quadratically better than classical Monte Carlo.</p>
-<p><strong>Grover operator</strong>: <span class="arithmatex">\(\mathcal{Q} = \mathcal{A} S_0 \mathcal{A}^\dagger S_{\psi_0}\)</span> rotates the state by <span class="arithmatex">\(2\theta_a\)</span> per application, where <span class="arithmatex">\(a = \sin^2(\theta_a)\)</span>.</p>
-<p><strong>QPE circuit</strong> (Fig. 2 of paper):</p>
+<p>QAE estimates <span class="arithmatex">\(a = \mathbb{E}[\bar{q}]\)</span> — the normalised expected cost — by exploiting a geometric structure in the quantum state.</p>
+<p><strong>The key insight: the Grover operator <span class="arithmatex">\(\mathcal{Q}\)</span> is a rotation</strong></p>
+<p>After applying <span class="arithmatex">\(\mathcal{A} = \mathcal{F} \cdot U_\text{DQA}\)</span>, the full state lives in a 2D plane spanned by:
+- <span class="arithmatex">\(|\text{good}\rangle\)</span> = states where ancilla = <span class="arithmatex">\(|1\rangle\)</span> (high cost, probability <span class="arithmatex">\(a\)</span>)
+- <span class="arithmatex">\(|\text{bad}\rangle\)</span> = states where ancilla = <span class="arithmatex">\(|0\rangle\)</span> (low cost, probability <span class="arithmatex">\(1-a\)</span>)</p>
+<p>The Grover operator <span class="arithmatex">\(\mathcal{Q} = \mathcal{A} S_0 \mathcal{A}^\dagger S_{\psi_0}\)</span> <strong>rotates this 2D state by exactly <span class="arithmatex">\(2\theta_a\)</span></strong> per application, where <span class="arithmatex">\(a = \sin^2(\theta_a)\)</span>.</p>
+<p><em>Analogy</em>: imagine a clock hand that rotates by a fixed (but unknown) angle each tick. If you watch it for <span class="arithmatex">\(M\)</span> ticks, you can figure out the angle much more precisely than if you just looked at it once.</p>
+<p><strong>QPE reads off the rotation angle</strong> (Fig. 2 of paper):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>m ancilla qubits → [ H ] ─ control Q¹ ────────────────── [ IQFT ] → measure b
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                   [ H ] ─ ─────────── control Q² ─────── [ IQFT ] → measure b
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                   [ H ] ─ ─────────── ─────────── control Q⁴ ─ [ IQFT ] → measure b
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                                                                        ↑
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>system qubits  → [ U_DQA ] → [ Oracle F ] ─────────────────────── (untouched)
+</code></pre></div>
 <ol>
-<li><span class="arithmatex">\(H^{\otimes m}\)</span> on <span class="arithmatex">\(m\)</span> estimate qubits</li>
-<li>Apply <span class="arithmatex">\(\mathcal{A} = \mathcal{F} \cdot U_\text{DQA}\)</span> once</li>
-<li>Controlled-<span class="arithmatex">\(\mathcal{Q}^{2^j}\)</span> for <span class="arithmatex">\(j = 0, \ldots, m-1\)</span></li>
-<li>Inverse QFT on estimate qubits</li>
-<li>Measure <span class="arithmatex">\(b\)</span> → <span class="arithmatex">\(\tilde{a} = \sin^2(b\pi/2^m)\)</span> → <span class="arithmatex">\(\tilde{\phi}(x) = \tilde{a} \cdot q_{\max}\)</span></li>
+<li>Put <span class="arithmatex">\(m\)</span> estimate qubits in equal superposition with Hadamard gates</li>
+<li>Apply <span class="arithmatex">\(\mathcal{A}\)</span> once to prepare the DQA + oracle state</li>
+<li>Estimate qubit <span class="arithmatex">\(j\)</span> controls <span class="arithmatex">\(2^j\)</span> applications of <span class="arithmatex">\(\mathcal{Q}\)</span> — this coherently accumulates the rotation angle into the estimate register</li>
+<li>Apply inverse QFT to decode the accumulated phase into a readable integer <span class="arithmatex">\(b\)</span></li>
+<li>Measure b → compute the answer:</li>
 </ol>
-<p><strong>Complexity</strong>: <span class="arithmatex">\(M = 2^m\)</span> circuit evaluations, error <span class="arithmatex">\(O(1/M)\)</span> vs classical <span class="arithmatex">\(O(1/\sqrt{M})\)</span>.</p>
+<div class="arithmatex">\[\tilde{a} = \sin^2\!\left(\frac{b \cdot \pi}{2^m}\right) \qquad \tilde{\phi}(x) = \tilde{a} \cdot q_{\max}\]</div>
+<p><strong>Concrete example</strong> with <span class="arithmatex">\(m = 3\)</span> estimate qubits (<span class="arithmatex">\(2^3 = 8\)</span> possible values of <span class="arithmatex">\(b\)</span>):</p>
+<p>Suppose the true <span class="arithmatex">\(a = 0.358\)</span> (so <span class="arithmatex">\(\phi(0) = 0.358 \times 3.0 = \$1.075\)</span>). Then <span class="arithmatex">\(\theta_a = \arcsin(\sqrt{0.358}) = 0.641\)</span> rad.</p>
+<p>QPE finds <span class="arithmatex">\(b = 2\)</span> (since <span class="arithmatex">\(b \cdot \pi / 8 \approx 0.785\)</span> rad is the closest grid point to <span class="arithmatex">\(\theta_a\)</span>):</p>
+<div class="arithmatex">\[\tilde{a} = \sin^2(2\pi/8) = \sin^2(0.785) = 0.500 \quad \Rightarrow \quad \tilde{\phi}(0) = 0.5 \times 3.0 = \$1.50\]</div>
+<p>With only <span class="arithmatex">\(m=3\)</span> qubits the estimate is rough. With <span class="arithmatex">\(m=5\)</span>: <span class="arithmatex">\(b=7\)</span>, <span class="arithmatex">\(\tilde{a} = \sin^2(7\pi/32) = 0.364\)</span>, <span class="arithmatex">\(\tilde{\phi}(0) = \$1.09\)</span> — much closer.</p>
+<p><strong>Why QAE beats Monte Carlo:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Evaluations <span class="arithmatex">\(M\)</span></th>
+<th>Error</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Monte Carlo (classical)</td>
+<td><span class="arithmatex">\(M\)</span> samples</td>
+<td><span class="arithmatex">\(\sim 1/\sqrt{M}\)</span></td>
+</tr>
+<tr>
+<td>QAE (quantum)</td>
+<td><span class="arithmatex">\(M = 2^m\)</span></td>
+<td><span class="arithmatex">\(\sim 1/M\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>To get error <span class="arithmatex">\(\epsilon = 0.01\)</span>: Monte Carlo needs <span class="arithmatex">\(M = 10{,}000\)</span> samples; QAE needs only <span class="arithmatex">\(M \approx 100\)</span> circuit evaluations.</p>
 <hr />
 <h2 id="convergence">Convergence<a class="headerlink" href="#convergence" title="Permanent link">&para;</a></h2>
-<p>As <span class="arithmatex">\(T \to \infty\)</span> (more DQA steps), the residual <span class="arithmatex">\(\delta \to 0\)</span> and <span class="arithmatex">\(\tilde{\phi}(x) \to \phi(x)\)</span>.
-As <span class="arithmatex">\(m \to \infty\)</span> (more QPE qubits), QAE error <span class="arithmatex">\(\to 0\)</span> with only <span class="arithmatex">\(M = 2^m\)</span> total evaluations.</p>
-<p>See <a href="https://arxiv.org/abs/2402.15029">Fig. 4 in arXiv:2402.15029</a> for empirical convergence curves.</p>
+<p>Two independent sources of error, each controlled by one parameter:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Parameter</th>
+<th>Effect on error</th>
+<th>How to reduce</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DQA residual <span class="arithmatex">\(\delta\)</span></td>
+<td>Trotter steps <span class="arithmatex">\(T\)</span></td>
+<td><span class="arithmatex">\(\delta \to 0\)</span> as <span class="arithmatex">\(T \to \infty\)</span></td>
+<td>Increase <code>time_steps</code></td>
+</tr>
+<tr>
+<td>QAE resolution</td>
+<td>QPE qubits <span class="arithmatex">\(m\)</span></td>
+<td>Error <span class="arithmatex">\(\sim 1/2^m\)</span></td>
+<td>Increase <code>m</code> in <code>canonical_qae()</code></td>
+</tr>
+</tbody>
+</table>
+<p>In practice, <span class="arithmatex">\(T=4\)</span>–<span class="arithmatex">\(10\)</span> steps and <span class="arithmatex">\(m=3\)</span>–<span class="arithmatex">\(5\)</span> qubits give good results for small problems.
+See <a href="https://arxiv.org/abs/2402.15029">Fig. 4 in arXiv:2402.15029</a> for empirical convergence curves.</p>
 
 
 
