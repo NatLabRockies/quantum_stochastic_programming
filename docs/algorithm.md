@@ -43,6 +43,32 @@ For $x = 0$: $\phi(0) = 0.25 \times (2.00 + 1.10 + 1.05 + 0.15) = 0.25 \times 4.
 
 Total cost for $x=0$: $0 + 1.075 = \$1.075$
 
+**Now compare $x=1$** (gas covers 1 MW, wind must cover the remaining 1 MW).
+With `wind_demand=1`, only one turbine is dispatched at a time (`sum(y)=1`). The optimizer picks whichever turbine has wind and is cheaper:
+
+| Scenario $\xi$ | Best dispatch $y^*$ | Wind output | Shortfall $r$ | Second-stage cost $q$ |
+|---------------|---------------------|-------------|---------------|-----------------------|
+| `(0,0)` — no wind | `[1,0]` (either works, same cost) | 0 MW | 1 MW | $0.05 \times 0 + 1.0 \times 1 = \$1.00$ |
+| `(0,1)` — turbine 1 only | `[0,1]` (use turbine 1) | 1 MW | 0 MW | $0.10 \times 1 = \$0.10$ |
+| `(1,0)` — turbine 0 only | `[1,0]` (use turbine 0, cheaper!) | 1 MW | 0 MW | $0.05 \times 1 = \$0.05$ |
+| `(1,1)` — both turbines | `[1,0]` (turbine 0 cheaper) | 1 MW | 0 MW | $0.05 \times 1 = \$0.05$ |
+
+$\phi(1) = 0.25 \times (1.00 + 0.10 + 0.05 + 0.05) = 0.25 \times 1.20 = \$0.30$
+
+Total cost for $x=1$: $0.40 \times 1 + 0.30 = \$0.70$ ← **cheaper than $x=0$!**
+
+**And $x=2$** (gas covers everything, no wind needed): $\phi(2) = \$0.00$ but gas cost is $0.40 \times 2 = \$0.80$.
+
+**Summary — the optimization result:**
+
+| $x$ (gas MW) | Gas cost | $\phi(x)$ (wind+recourse) | Total cost |
+|---|---|---|---|
+| 0 | \$0.00 | \$1.075 | \$1.075 |
+| **1** | **\$0.40** | **\$0.300** | **\$0.700 ← optimal** |
+| 2 | \$0.80 | \$0.000 | \$0.800 |
+
+The surprise: committing *some* gas ($x=1$) and relying on wind for the rest is cheaper than either full wind ($x=0$, too much recourse risk) or full gas ($x=2$, too expensive). This is the core insight the quantum algorithm is designed to find efficiently by computing $\phi(x)$ for each $x$.
+
 The algorithm must compute $\phi(x)$ for each candidate $x$ — this is the hard part, because the $\min$ over $y$ is *inside* the expectation over $\xi$. Every scenario needs its own optimal dispatch, and classical Monte Carlo needs $O(1/\epsilon^2)$ samples to estimate this accurately.
 
 ---

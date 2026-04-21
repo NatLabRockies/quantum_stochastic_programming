@@ -78,6 +78,7 @@ print("Classical φ(x) for all x:", ev_true)
 #
 # To find the optimal x, run the circuit once per candidate and pick min 0.4*x + φ̃(x).
 # Here we evaluate x=0 (wind_demand=2) as an example.
+# (Spoiler: x=1 is optimal for this problem — see the Algorithm Overview for the full comparison.)
 qc = bno.adiabatic_evolution_circuit(
     wind_demand=2,    # encodes x=0: wind turbines must cover all 2 MW of demand
     time=100,         # total annealing time T (longer → closer to ground state)
