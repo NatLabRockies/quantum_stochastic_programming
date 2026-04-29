@@ -1104,35 +1104,35 @@ class BinaryNestedOptimizer:
         # if no number of measurements is specified, try to use statevector
         # if no number of measurements is specified, try to use statevector
         if num_meas is None:
-            # GPU-TIER1: AerSimulator with GPU device (falls back to CPU automatically)
-            # GPU-TIER3: for large m (>= 7 QPE qubits), switch to method='tensor_network'
-            method = 'tensor_network' if m >= 7 else 'statevector'
-            simulator = _get_simulator(method=method, shots_mode=False,
-                                       n_qubits=qc.num_qubits)
-            qc.save_statevector()  # required in Aer 0.15+ to store SV in result
-            qc = transpile(qc, simulator)
-            result = simulator.run(qc).result()
-            statevector = result.get_statevector(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
-            pd = statevector.probabilities_dict()
+            # Use Statevector.evolve() directly: avoids transpile qubit routing
+            # which would silently reorder logical qubits and corrupt the marginalisation.
+            # GPU-TIER1 for large circuits: switch to shots mode by providing num_meas.
+            from qiskit.quantum_info import Statevector as _SV
+            sv = _SV.from_label('0' * qc.num_qubits)
+            sv = sv.evolve(qc)
+            pd = sv.probabilities_dict()
             b_counts = {}
-            for key,value in pd.items():
-                reg = key[:m]
-                if reg not in b_counts.keys():
-                    b_counts[reg] = 0
-                b_counts[reg] += value
+            for key, value in pd.items():
+                # QPE qubits at circuit indices 0..m-1 = last m chars in bitstring
+                reg = key[-m:]
+                b_counts[reg] = b_counts.get(reg, 0) + value
             return b_counts
         # use counts
         else:
-            #qc.measure_all()
-            qc_meas = QuantumCircuit(2*self.num_wind_vars+1+m, m)
-            qc_meas.append(qc, list(range(2*self.num_wind_vars+1+m)))
-            qc_meas.measure(list(range(2*self.num_wind_vars+1, 2*self.num_wind_vars+1+m)), list(range(m)))
-            # GPU-TIER1+2: GPU + max_parallel_shots; batch [qc_x0, qc_x1, ...] for Tier 2
-            simulator = _get_simulator(method='statevector', shots_mode=True)
+            # Shots mode: measure only the QPE register (qubits 0..m-1) into m classical bits.
+            # GPU-TIER1+2: GPU + max_parallel_shots for shot execution.
+            # NOTE: QPE qubits are at circuit indices 0..m-1 in implemented_qae(); measuring
+            # them via dedicated classical bits avoids qubit routing ambiguity.
+            n_sys = 2 * self.num_wind_vars + 1
+            qc_meas = QuantumCircuit(n_sys + m, m)
+            qc_meas.append(qc, list(range(n_sys + m)))
+            qc_meas.measure(list(range(m)), list(range(m)))  # QPE qubits 0..m-1
+            simulator = _get_simulator(method='statevector', shots_mode=True,
+                                       n_qubits=qc_meas.num_qubits)
             qc_meas = transpile(qc_meas, simulator)
             result = simulator.run(qc_meas, shots=num_meas).result()
             counts = result.get_counts(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
-            counts = {key:value/num_meas for key,value in counts.items()}
+            counts = {key: value / num_meas for key, value in counts.items()}
             return counts
 
 
@@ -1189,19 +1189,17 @@ class BinaryNestedOptimizer:
         simulator = _get_simulator(method=method, shots_mode=(num_meas is not None))
 
         if num_meas is None:
-            # save_statevector() must be added before transpile in Aer 0.15+
-            sv_circuits = [qc.copy() for qc in circuits]
-            for qc in sv_circuits:
-                qc.save_statevector()
-            transpiled = [transpile(qc, simulator) for qc in sv_circuits]
-            job = simulator.run(transpiled)
-            results = job.result()
+            # Use Statevector.evolve() directly: avoids transpile qubit routing
+            # which would corrupt the QPE register marginalisation.
+            from qiskit.quantum_info import Statevector as _SV
             out = []
-            for i, qc in enumerate(transpiled):
-                pd = results.get_statevector(i).probabilities_dict()  # use index; circuit object key invalid after transpile in Qiskit 2.x
+            for qc in circuits:
+                sv = _SV.from_label('0' * qc.num_qubits)
+                sv = sv.evolve(qc)
+                pd = sv.probabilities_dict()
                 b_counts: dict = {}
                 for key, value in pd.items():
-                    reg = key[:m]
+                    reg = key[-m:]
                     b_counts[reg] = b_counts.get(reg, 0) + value
                 out.append(b_counts)
             return out
@@ -1211,7 +1209,7 @@ class BinaryNestedOptimizer:
             for qc in circuits:
                 qc_meas = QuantumCircuit(n_sys + m, m)
                 qc_meas.append(qc, list(range(n_sys + m)))
-                qc_meas.measure(list(range(n_sys, n_sys + m)), list(range(m)))
+                qc_meas.measure(list(range(m)), list(range(m)))  # QPE qubits 0..m-1
                 meas_circuits.append(transpile(qc_meas, simulator))
             job = simulator.run(meas_circuits, shots=num_meas)
             results = job.result()
