@@ -112,7 +112,7 @@ from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 
 from qiskit import QuantumCircuit#, Aer
-from qiskit_aer import Aer
+from qiskit_aer import Aer, AerSimulator
 from qiskit.circuit.library import Initialize
 from qiskit.compiler import transpile
 #from qiskit.tools.visualization import plot_histogram
@@ -127,6 +127,37 @@ except ImportError:
 from qiskit.converters import circuit_to_gate
 from qiskit.quantum_info import Statevector
 
+# ---------------------------------------------------------------------------
+# GPU backend helper
+# ---------------------------------------------------------------------------
+def _get_simulator(method: str = 'statevector', shots_mode: bool = False,
+                   n_qubits: int = 0) -> object:
+    """Return an AerSimulator targeting GPU if available, else CPU.
+
+    Args:
+        method: Aer simulation method ('statevector' or 'tensor_network').
+        shots_mode: If True, add max_parallel_shots=0 for GPU shot parallelism.
+        n_qubits: Circuit width hint.  When >= 20 on GPU, enables cuStateVec
+                  (NVIDIA cuQuantum) for large-statevector acceleration.
+    """
+    try:
+        options = {'method': method, 'device': 'GPU'}
+        if shots_mode:
+            options['max_parallel_shots'] = 0
+        # Tier 3: enable cuStateVec for large circuits (>= 20 qubits)
+        if method == 'statevector' and n_qubits >= 20:
+            options['cuStateVec_enable'] = True
+        sim = AerSimulator(**options)
+        # Probe GPU availability — raises if no CUDA device found
+        sim.available_devices()
+        return sim
+    except Exception:
+        # Fall back to CPU statevector
+        options = {'method': method, 'device': 'CPU'}
+        if shots_mode:
+            options['max_parallel_shots'] = 0
+        return AerSimulator(**options)
+# ---------------------------------------------------------------------------
 
 
 # Let's turn our problem into a bernouli estimation problem
@@ -966,22 +997,23 @@ class BinaryNestedOptimizer:
         """
         # if no number of measurements is specified, try to use statevector
         if num_meas is None:
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU')
-            # GPU-TIER2: for num_meas is not None, set max_parallel_shots=0 for GPU shot parallelism
-            simulator = Aer.get_backend('statevector_simulator')
-            #job = execute(circ, backend)
+            # GPU-TIER1: AerSimulator with GPU device (falls back to CPU automatically)
+            simulator = _get_simulator(method='statevector', shots_mode=False,
+                                       n_qubits=qc.num_qubits)
+            qc.save_statevector()  # required in Aer 0.15+ to store SV in result
             qc = transpile(qc, simulator)
             result = simulator.run(qc).result()
-            statevector = result.get_statevector(qc)
+            statevector = result.get_statevector(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
             return statevector.probabilities_dict()
         # use counts
         else:
             qc.measure_all()
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU', max_parallel_shots=0)
-            simulator = Aer.get_backend('aer_simulator_statevector')
+            # GPU-TIER1+2: GPU + max_parallel_shots for batched shot execution
+            simulator = _get_simulator(method='statevector', shots_mode=True,
+                                       n_qubits=qc.num_qubits)
             qc = transpile(qc, simulator)
             result = simulator.run(qc, shots=num_meas).result()
-            counts = result.get_counts(qc)
+            counts = result.get_counts(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
             counts = {key:value/num_meas for key,value in counts.items()}
             return counts
     
@@ -1011,12 +1043,13 @@ class BinaryNestedOptimizer:
         # if no number of measurements is specified, try to use statevector
         # if no number of measurements is specified, try to use statevector
         if num_meas is None:
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU')
-            simulator = Aer.get_backend('statevector_simulator')
-            #job = execute(circ, backend)
+            # GPU-TIER1: AerSimulator with GPU device (falls back to CPU automatically)
+            simulator = _get_simulator(method='statevector', shots_mode=False,
+                                       n_qubits=qc.num_qubits)
+            qc.save_statevector()  # required in Aer 0.15+ to store SV in result
             qc = transpile(qc, simulator)
             result = simulator.run(qc).result()
-            statevector = result.get_statevector(qc)
+            statevector = result.get_statevector(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
             pd = statevector.probabilities_dict()
             a = 0.
             for key,value in pd.items():
@@ -1025,14 +1058,15 @@ class BinaryNestedOptimizer:
             return a
         # use counts
         else:
-            #qc.measure_all()
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU', max_parallel_shots=0)
-            # GPU-TIER2: batch multiple oracle evaluations into one shots call
-            simulator = Aer.get_backend('aer_simulator_statevector')
+            qc.measure_all()  # measure all qubits; ancilla is MSB (key[0])
+            # GPU-TIER1+2: GPU + max_parallel_shots for batched oracle evaluations
+            simulator = _get_simulator(method='statevector', shots_mode=True,
+                                       n_qubits=qc.num_qubits)
             qc = transpile(qc, simulator)
             result = simulator.run(qc, shots=num_meas).result()
-            counts = result.get_counts(qc)
-            return counts['1'] / num_meas if '1' in counts.keys() else 0
+            counts = result.get_counts(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
+            # ancilla is the highest-index qubit = MSB (leftmost char) in Qiskit bitstrings
+            return sum(v for k, v in counts.items() if k[0] == '1') / num_meas
 
 
     def execute_qae(self, qc, m, num_meas=None):
@@ -1070,13 +1104,15 @@ class BinaryNestedOptimizer:
         # if no number of measurements is specified, try to use statevector
         # if no number of measurements is specified, try to use statevector
         if num_meas is None:
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU')
-            # GPU-TIER3: for large m (many QPE qubits), try method='tensor_network'
-            simulator = Aer.get_backend('statevector_simulator')
-            #job = execute(circ, backend)
+            # GPU-TIER1: AerSimulator with GPU device (falls back to CPU automatically)
+            # GPU-TIER3: for large m (>= 7 QPE qubits), switch to method='tensor_network'
+            method = 'tensor_network' if m >= 7 else 'statevector'
+            simulator = _get_simulator(method=method, shots_mode=False,
+                                       n_qubits=qc.num_qubits)
+            qc.save_statevector()  # required in Aer 0.15+ to store SV in result
             qc = transpile(qc, simulator)
             result = simulator.run(qc).result()
-            statevector = result.get_statevector(qc)
+            statevector = result.get_statevector(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
             pd = statevector.probabilities_dict()
             b_counts = {}
             for key,value in pd.items():
@@ -1091,15 +1127,97 @@ class BinaryNestedOptimizer:
             qc_meas = QuantumCircuit(2*self.num_wind_vars+1+m, m)
             qc_meas.append(qc, list(range(2*self.num_wind_vars+1+m)))
             qc_meas.measure(list(range(2*self.num_wind_vars+1, 2*self.num_wind_vars+1+m)), list(range(m)))
-            # GPU-TIER1: replace with AerSimulator(method='statevector', device='GPU', max_parallel_shots=0)
-            # GPU-TIER2: batch multiple x values: pass [qc_x0, qc_x1, ...] to simulator.run()
-            simulator = Aer.get_backend('aer_simulator_statevector')
+            # GPU-TIER1+2: GPU + max_parallel_shots; batch [qc_x0, qc_x1, ...] for Tier 2
+            simulator = _get_simulator(method='statevector', shots_mode=True)
             qc_meas = transpile(qc_meas, simulator)
             result = simulator.run(qc_meas, shots=num_meas).result()
-            counts = result.get_counts(qc_meas)
+            counts = result.get_counts(0)  # use index; circuit object key invalid after transpile in Qiskit 2.x
             counts = {key:value/num_meas for key,value in counts.items()}
             return counts
 
+
+    # ---------------------------------------------------------------------------
+    # Tier 2 batched executors
+    # ---------------------------------------------------------------------------
+    def execute_optimizer_batched(self, circuits: list, num_meas: int = None) -> list:
+        """GPU-batched variant of execute_optimizer for multiple circuits at once.
+
+        Submits all circuits in a single `simulator.run()` call, which amortises
+        GPU kernel launch overhead and maximises H100 occupancy.
+
+        Args:
+            circuits: List of DQA QuantumCircuits (one per x-value).
+            num_meas: Shots per circuit, or ``None`` for exact statevector.
+
+        Returns:
+            List of probability/count dicts, one per input circuit.
+        """
+        simulator = _get_simulator(method='statevector', shots_mode=(num_meas is not None))
+        if num_meas is None:
+            # save_statevector() must be added before transpile in Aer 0.15+
+            sv_circuits = [qc.copy() for qc in circuits]
+            for qc in sv_circuits:
+                qc.save_statevector()
+            transpiled = [transpile(qc, simulator) for qc in sv_circuits]
+            job = simulator.run(transpiled)
+            results = job.result()
+            return [results.get_statevector(i).probabilities_dict()  # use index; circuit object key invalid after transpile in Qiskit 2.x
+                    for i in range(len(transpiled))]
+        else:
+            meas_circuits = []
+            for qc in circuits:
+                qc_copy = qc.copy()
+                qc_copy.measure_all()
+                meas_circuits.append(transpile(qc_copy, simulator))
+            job = simulator.run(meas_circuits, shots=num_meas)
+            results = job.result()
+            return [{k: v / num_meas for k, v in results.get_counts(i).items()}
+                    for i in range(len(meas_circuits))]
+
+    def execute_qae_batched(self, circuits: list, m: int, num_meas: int = None) -> list:
+        """GPU-batched variant of execute_qae for multiple QAE circuits at once.
+
+        Args:
+            circuits: List of full QAE QuantumCircuits (one per x-value).
+            m: Number of QPE estimate qubits.
+            num_meas: Shots per circuit, or ``None`` for exact statevector.
+
+        Returns:
+            List of QPE outcome dicts ``{b_bitstring: probability}``.
+        """
+        method = 'tensor_network' if m >= 7 else 'statevector'
+        simulator = _get_simulator(method=method, shots_mode=(num_meas is not None))
+
+        if num_meas is None:
+            # save_statevector() must be added before transpile in Aer 0.15+
+            sv_circuits = [qc.copy() for qc in circuits]
+            for qc in sv_circuits:
+                qc.save_statevector()
+            transpiled = [transpile(qc, simulator) for qc in sv_circuits]
+            job = simulator.run(transpiled)
+            results = job.result()
+            out = []
+            for i, qc in enumerate(transpiled):
+                pd = results.get_statevector(i).probabilities_dict()  # use index; circuit object key invalid after transpile in Qiskit 2.x
+                b_counts: dict = {}
+                for key, value in pd.items():
+                    reg = key[:m]
+                    b_counts[reg] = b_counts.get(reg, 0) + value
+                out.append(b_counts)
+            return out
+        else:
+            meas_circuits = []
+            n_sys = 2 * self.num_wind_vars + 1
+            for qc in circuits:
+                qc_meas = QuantumCircuit(n_sys + m, m)
+                qc_meas.append(qc, list(range(n_sys + m)))
+                qc_meas.measure(list(range(n_sys, n_sys + m)), list(range(m)))
+                meas_circuits.append(transpile(qc_meas, simulator))
+            job = simulator.run(meas_circuits, shots=num_meas)
+            results = job.result()
+            return [{k: v / num_meas for k, v in results.get_counts(i).items()}
+                    for i in range(len(meas_circuits))]
+    # ---------------------------------------------------------------------------
 
     # post-processors
     def process_expectation_value_optimizer(self, wind_demand, counts):

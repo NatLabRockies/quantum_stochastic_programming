@@ -77,6 +77,7 @@ nav:
   - API Reference:
     - qiskit_impl/:
       - binary_optimizer: api/binary_optimizer.md
+      - cudaq_impl: api/cudaq_impl.md
       - qae: api/qae.md
       - ExpValFun_functions: api/expvalfun_functions.md
       - dist_prep: api/dist_prep.md

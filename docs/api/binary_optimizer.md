@@ -20,3 +20,11 @@ the main solver class, and `BernoulliA`, the amplitude-estimation wrapper.
 ## Helper Functions
 
 ::: qiskit_impl.binary_optimizer.sample_wvfn
+
+---
+
+## GPU Backend Helper
+
+::: qiskit_impl.binary_optimizer._get_simulator
+    options:
+      show_source: true
