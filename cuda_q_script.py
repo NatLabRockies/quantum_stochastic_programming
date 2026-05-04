@@ -135,25 +135,35 @@ print(f"\nActive backend: {BACKEND}")
 # %%
 # ── PROBLEM PARAMETERS (shared by all backends) ────────────────────────────────
 n_y  = 4        # wind turbines
-n_xi = 4        # xi register qubits (= n_y for uniform pdf)
+# n_xi = 4        # xi register qubits (= n_y for uniform pdf)
+n_xi = n_y      # n_xi == n_y pretty much always...
 n_x  = 1        # gas generators
 d    = n_y      # total demand
 
 c_x  = [3.]
 c_y  = [0.4, 0.5, 0.7, 1.0]
-c_r  = 10.
+c_r  = 10.0
+
+x0 = [2.0] # First stage value to compute expectation for
+
+# -------- CIRCUIT PARAMETERS -------- #
+N_TIME_STEPS = 4
+
+assert(len(c_y) == n_y)
+assert(len(c_x) == n_x)
+assert(len(x0) == n_x)
 
 # Uniform wind scenario distribution
 pdf = {tuple([int(v) for v in ('{0:0'+str(n_y)+'b}').format(i)]) : 1/2**n_y
        for i in range(2**n_y)}
 
-# DQA annealing schedule (4 timesteps, matches qae_example.ipynb)
-w_d       = 2          # wind demand = d - x
-cost_norm = 5.0        # oracle normalization (= w_d * c_r / 4)
-m         = 4          # QPE readout qubits for QAE
-norm      = w_d * c_r  # oracle amplitude normalisation (= 20)
+# DQA annealing schedule
+w_d       = d - sum(x0)      # wind demand = d - x
+cost_norm = w_d * c_r / n_y  # oracle normalization--upper bound for objective
+m         = 4                # QPE readout qubits for QAE
+norm      = w_d * c_r        # oracle amplitude normalisation (= 20)
 
-timesteps = 4
+timesteps = N_TIME_STEPS
 Theta = []
 for t in range(timesteps):
     Theta.append(float(t / timesteps))           # gamma_t

@@ -177,9 +177,91 @@ def dicke_state_n4_k2(y: cudaq.qview):
     cx(y[0], y[1])
 
 
-# @cudaq.kernel
-# def dicke_state(y: cudaq.qview):
-#     return
+def dicke_state_angles(n: int, k: int) -> List[float]:
+    """Pre-compute SCS angles for |D_n^k⟩ (Bärtschi & Eidenbenz 2019).
+
+    Returns a flat list of angles consumed by dicke_state() in order:
+      - (n-k)*k angles for the first (n-k) SCS steps (phase 1),
+      - k*(k-1)//2 angles for the remaining (k-1) SCS steps (phase 2).
+    Each angle theta_j = 2*arccos(sqrt(j/m)) for SCS(m, l) at position j.
+
+    Example (n=4, k=2) — matches the inline constants in dicke_state_n4_k2:
+      [2*acos(sqrt(1/4)), pi/2, 2*acos(sqrt(1/3)), 2*acos(sqrt(2/3)), pi/2]
+    """
+    angles: List[float] = []
+    # Phase 1: (n-k) steps of SCS(n-i, k) for i = 0 .. n-k-1
+    for i in range(n - k):
+        m = n - i
+        for j in range(1, k + 1):
+            angles.append(2.0 * math.acos(math.sqrt(j / m)))
+    # Phase 2: (k-1) steps of SCS(k-i, k-1-i) for i = 0 .. k-2
+    for i in range(k - 1):
+        m = k - i
+        l = k - 1 - i
+        for j in range(1, l + 1):
+            angles.append(2.0 * math.acos(math.sqrt(j / m)))
+    return angles
+
+
+@cudaq.kernel
+def _mcry(theta: float, ctrls: cudaq.qview, target: cudaq.qubit):
+    """Multi-controlled RY(theta) on target, gated by all qubits in ctrls.
+
+    Generalises cry (1 control) and ccry (2 controls) to arbitrary fan-in.
+    Qiskit counterpart: RYGate(theta).control(len(ctrls)) used inside
+    dicke_state_circuit() for the j-th SCS layer.
+    """
+    cudaq.control(_ry_gate, ctrls, theta, target)
+
+
+@cudaq.kernel
+def dicke_state(n: int, k: int, angles: list[float], y: cudaq.qview):
+    """General Dicke state |D_n^k⟩ preparation (Bärtschi & Eidenbenz 2019).
+
+    Prepares the uniform superposition over all n-qubit bit-strings with
+    exactly k ones.  Pass pre-computed angles from dicke_state_angles(n, k).
+
+    Qiskit counterpart: ExpValFun_functions.dicke_state_circuit(args) and
+    BinaryNestedOptimizer.dicke_state_circuit(weight) in binary_optimizer.py,
+    generalised to arbitrary n=args['n_y'] and k=args['w_d'].
+
+    Algorithm (Bärtschi & Eidenbenz 2019, Fig. 3):
+      1. Initialise |0^{n-k} 1^k⟩ by flipping the k rightmost qubits.
+      2. Phase 1 — (n-k) SCS(n-i, k) steps on qubits y[n-k-1-i .. n-1-i]
+         for i = 0 .. n-k-1.
+      3. Phase 2 — (k-1) SCS(k-i, k-1-i) steps on qubits y[0 .. k-1-i]
+         for i = 0 .. k-2.
+    Each SCS(m, l) step applies, for j = 1 .. l:
+      cx(q[l-j], q[l]);  (j-controlled) RY(theta_j) ctrls=q[l-j+1..l], tgt=q[l-j];  cx(q[l-j], q[l])
+    where theta_j = 2*arccos(sqrt(j/m)) (pre-computed by dicke_state_angles).
+
+    For n=4, k=2 this produces an equivalent circuit to dicke_state_n4_k2.
+    """
+    # ---- Step 1: initialise ------------------------------------------------
+    for i in range(k):
+        x(y[n - 1 - i])
+
+    angle_idx = 0
+
+    # ---- Phase 1: (n-k) SCS steps across the full register -----------------
+    for step in range(n - k):
+        start = n - k - 1 - step        # leftmost qubit index for this SCS
+        for j in range(1, k + 1):
+            tgt = start + k - j          # target qubit index
+            cx(y[tgt], y[start + k])
+            _mcry(angles[angle_idx], y[tgt + 1 : start + k + 1], y[tgt])
+            cx(y[tgt], y[start + k])
+            angle_idx += 1
+
+    # ---- Phase 2: (k-1) SCS steps at the left end of the register ----------
+    for step in range(k - 1):
+        l = k - 1 - step                # excitation count for this SCS
+        for j in range(1, l + 1):
+            tgt = l - j
+            cx(y[tgt], y[l])
+            _mcry(angles[angle_idx], y[tgt + 1 : l + 1], y[tgt])
+            cx(y[tgt], y[l])
+            angle_idx += 1
 
 
 # # -----------------------------------------------------------------------------
@@ -414,14 +496,18 @@ def oracle_sin(c_y: list[float], c_r: float, norm: float,
 
 
 @cudaq.kernel
-def dqa_ansatz(c_y: list[float], c_r: float, cost_norm: float,
+def dqa_ansatz(c_y: list[float], c_r: float, cost_norm: float, w_d: int,
                thetas: list[float],
                n_steps: int, n_y: int):
     qubits = cudaq.qvector(2*n_y)
     y = qubits[0:n_y]
     xi = qubits[n_y:2*n_y]
 
-    dicke_state_n4_k2(y)
+    # dicke_state_n4_k2(y)
+
+    dang = dicke_state_angles(n_y, w_d)
+    dicke_state(n_y, w_d, dang, y)
+
     pdf_init_uniform(xi)
     for i in range(n_steps * 2):
         if i % 2 == 0:
@@ -483,15 +569,33 @@ class CudaqQAEOptimizer:
         """
         n_steps = len(thetas) // 2
         counts = cudaq.sample(
-            # dqa_ansatz_n4,
             dqa_ansatz,
-            # self.c_y[0], self.c_y[1], self.c_y[2], self.c_y[3],
             self.c_y,
             self.c_r, self.cost_norm,
+            self.w_d,
             thetas, n_steps, self.n_y,
             shots_count=shots)
         total = sum(counts.values())
         return {k: v / total for k, v in counts.items()}
+
+    def get_statevector(self, thetas: list) -> np.ndarray:
+        """Return the full complex amplitude vector for the DQA ansatz.
+
+        Uses cudaq.get_state() — no measurement, no sampling noise.
+        Requires a statevector-capable target: 'qpp-cpu' or 'nvidia'.
+
+        Args:
+            thetas: Alternating [gamma, beta, ...] DQA angles.
+
+        Returns:
+            Complex numpy array of length 2**(2*n_y).
+        """
+        n_steps = len(thetas) // 2
+        state = cudaq.get_state(
+            dqa_ansatz,
+            self.c_y, self.c_r, self.cost_norm,
+            self.w_d, thetas, n_steps, self.n_y)
+        return np.array(state)
 
     def estimate_expected_value(self, thetas: list, wind_demand: int,
                                 shots: int = 4096) -> float:
@@ -516,6 +620,103 @@ class CudaqQAEOptimizer:
             cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
             expectation += cost * prob
         return expectation
+
+    def estimate_expected_value_sv(self, thetas: list, wind_demand: int) -> float:
+        """Exact expected second-stage cost via statevector simulation (no shots).
+
+        Calls get_statevector() to obtain the full amplitude vector, then
+        computes E[Q] = sum_i |alpha_i|^2 * Q(y_i, xi_i) over all 2**(2*n_y)
+        basis states.  Exact up to floating-point precision; no sampling noise.
+
+        Requires a statevector-capable target: 'qpp-cpu' or 'nvidia'.
+
+        Args:
+            thetas:      DQA angles [gamma_0, beta_0, ...].
+            wind_demand: k — required Hamming weight of y (= d - x).
+
+        Returns:
+            Exact expected second-stage cost.
+        """
+        sv = self.get_statevector(thetas)
+        n_total = 2 * self.n_y
+        expectation = 0.0
+        for i in range(1 << n_total):
+            prob = abs(sv[i]) ** 2
+            if prob < 1e-14:
+                continue
+            # Convert index to the same bitstring convention as cudaq.sample():
+            # qubit j is at position j in the bitstring (qubit 0 = LSB of i).
+            bstr = format(i, f'0{n_total}b')[::-1]
+            y_bits  = [int(b) for b in bstr[:self.n_y][::-1]]
+            xi_bits = [int(b) for b in bstr[self.n_y:][::-1]]
+            cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
+            expectation += cost * prob
+        return expectation
+
+    def build_cost_hamiltonian(self) -> 'cudaq.SpinOperator':
+        """Build the cost function as a CUDA-Q SpinOperator in Pauli Z form.
+
+        Expresses Q(y, xi) = sum_j [c_y[j]*n_{y_j}*n_{xi_j} + c_r*n_{y_j}*(1-n_{xi_j})]
+        in terms of Pauli Z operators via the number-operator identity n_j = (I - Z_j)/2:
+
+          n_{y_j} * n_{xi_j}       = (1/4)(I - Z_{y_j} - Z_{xi_j} + Z_{y_j}*Z_{xi_j})
+          n_{y_j} * (1-n_{xi_j})   = (1/4)(I - Z_{y_j} + Z_{xi_j} - Z_{y_j}*Z_{xi_j})
+
+        So per turbine j:
+          coeff_I      = (c_y[j] + c_r) / 4
+          coeff_Zy     = -(c_y[j] + c_r) / 4
+          coeff_Zxi    = (c_r - c_y[j]) / 4
+          coeff_ZyZxi  = (c_y[j] - c_r) / 4
+
+        Qubit layout matches the kernel: y[0..n_y-1] at indices 0..n_y-1,
+        xi[0..n_y-1] at indices n_y..2*n_y-1.
+
+        Returns:
+            cudaq.SpinOperator representing the full cost Hamiltonian.
+        """
+        h = None
+        for j in range(self.n_y):
+            y_idx  = j
+            xi_idx = self.n_y + j
+
+            coeff_I     = (self.c_y[j] + self.c_r) / 4.0
+            coeff_Zy    = -(self.c_y[j] + self.c_r) / 4.0
+            coeff_Zxi   = (self.c_r - self.c_y[j]) / 4.0
+            coeff_ZyZxi = (self.c_y[j] - self.c_r) / 4.0
+
+            terms = (coeff_I     * cudaq.spin.i(y_idx)
+                   + coeff_Zy    * cudaq.spin.z(y_idx)
+                   + coeff_Zxi   * cudaq.spin.z(xi_idx)
+                   + coeff_ZyZxi * cudaq.spin.z(y_idx) * cudaq.spin.z(xi_idx))
+
+            h = terms if h is None else h + terms
+        return h
+
+    def estimate_expected_value_observe(self, thetas: list) -> float:
+        """Exact expected second-stage cost via cudaq.observe() (no shots).
+
+        Constructs the cost function as a Pauli Z SpinOperator via
+        build_cost_hamiltonian(), then evaluates <psi|H|psi> exactly using
+        cudaq.observe().  No sampling noise; exact up to floating-point precision.
+
+        This is the most direct CUDA-Q approach: the expectation value is computed
+        in a single pass through the statevector without enumerating basis states.
+
+        Requires a statevector-capable target: 'qpp-cpu' or 'nvidia'.
+
+        Args:
+            thetas: DQA angles [gamma_0, beta_0, ...].
+
+        Returns:
+            Exact expected second-stage cost.
+        """
+        h = self.build_cost_hamiltonian()
+        n_steps = len(thetas) // 2
+        result = cudaq.observe(
+            dqa_ansatz, h,
+            self.c_y, self.c_r, self.cost_norm,
+            self.w_d, thetas, n_steps, self.n_y)
+        return result.expectation()
 
     def _wind_scenario_cost(self, y: list, xi: list, wind_demand: int) -> float:
         """Second-stage cost Q(y, xi) for one scenario.
