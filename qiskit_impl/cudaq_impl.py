@@ -96,15 +96,15 @@ def scs_3(theta1: float, theta2: float,
     cx(q0, q2)
 
 
-# # Cleaner CCRy decomposition used in Dicke state preparation
-# # Qiskit counterpart: RYGate().control(2) applied via qc.append()
-# #   in both dicke_state_circuit() and single_oracle_sin_inconstraint().
-# #   CUDA-Q has no native CCRy gate; use cudaq.control(kernel, [controls], args)
-# #   which compiles to a multiply-controlled version of the sub-kernel.
-# @cudaq.kernel
-# def _ry_gate(theta: float, q: cudaq.qubit):
-#     """Single-qubit RY helper — used by ccry via cudaq.control."""
-#     ry(theta, q)
+# Cleaner CCRy decomposition used in Dicke state preparation
+# Qiskit counterpart: RYGate().control(2) applied via qc.append()
+#   in both dicke_state_circuit() and single_oracle_sin_inconstraint().
+#   CUDA-Q has no native CCRy gate; use cudaq.control(kernel, [controls], args)
+#   which compiles to a multiply-controlled version of the sub-kernel.
+@cudaq.kernel
+def _ry_gate(theta: float, q: cudaq.qubit):
+    """Single-qubit RY helper — used by ccry via cudaq.control."""
+    ry(theta, q)
 
 
 @cudaq.kernel
