@@ -145,10 +145,12 @@ c_x  = [3.]
 c_y = np.linspace(0.1, 1.0, n_y)
 c_r  = 10.0
 
-x0 = [2.0] # First stage value to compute expectation for
+x0 = [2] # First stage value to compute expectation for
 
 # -------- CIRCUIT PARAMETERS -------- #
-N_TIME_STEPS = 8
+N_TIME_STEPS = 100
+N_SHOTS = 2**12
+# ------------------------------------ #
 
 assert(len(c_y) == n_y)
 assert(len(c_x) == n_x)
@@ -239,15 +241,30 @@ elif BACKEND == 'cuda-q':
     # CUDA-Q native kernel execution
     cudaq_opt = CudaqQAEOptimizer(c_x=c_x, c_y=c_y, c_r=c_r,
                                   n_y=n_y, w_d=w_d, cost_norm=cost_norm)
-    dqa_counts = cudaq_opt.sample_ansatz(Theta, shots=16384)
+    dqa_counts = cudaq_opt.sample_ansatz(Theta, shots=N_SHOTS)
     print(f"[cuda-q] cudaq.sample — {len(dqa_counts)} bitstrings")
 
 elapsed = time.perf_counter() - t0
 print(f"Wall time: {elapsed*1000:.1f} ms")
 
 # %%
-# ── DQA EXPECTED VALUE (post-processing, same for all backends) ───────────────
-dqa_phi = bno.process_expectation_value_optimizer(w_d, dqa_counts)
+# ── DQA EXPECTED VALUE (post-processing) ────────────────────────────────────
+if BACKEND == 'cuda-q':
+    # CUDA-Q bitstrings use qubit 0 = leftmost, so bstr[:n_y] = y register
+    # and bstr[n_y:] = xi register in natural (un-reversed) order.
+    # bno.process_expectation_value_optimizer expects Qiskit convention
+    # (qubit 0 = rightmost), so we post-process directly here.
+    expectation = 0.0
+    for bstr, prob in dqa_counts.items():
+        y_bits  = [int(b) for b in bstr[:n_y]]
+        xi_bits = [int(b) for b in bstr[n_y:]]
+        true_output = np.array(y_bits) * np.array(xi_bits)
+        op_cost = float(np.dot(c_y, true_output))
+        shortfall = max(0, w_d - int(true_output.sum()))
+        expectation += (op_cost + shortfall * c_r) * prob
+    dqa_phi = expectation
+else:
+    dqa_phi = bno.process_expectation_value_optimizer(w_d, dqa_counts)
 classical_phi = exp_vals[w_d]
 
 print(f"DQA  phi(w_d={w_d}) [{BACKEND}] : {dqa_phi:.4f}")
@@ -287,12 +304,12 @@ if BACKEND in ('cpu', 'aer-gpu'):
 
     else:  # aer-gpu
         # GPU shot-based QAE — measurement gates are qubit-routing-safe
-        shots = 4096
+        shots = N_SHOTS
         b_counts = bno.execute_qae(qae_circuit.copy(), m, num_meas=shots)
         print(f"[aer-gpu] AerSimulator GPU QAE ({shots} shots) — {len(b_counts)} QPE outcomes")
 
 elif BACKEND == 'cuda-q':
-    phi_cudaq = cudaq_opt.estimate_expected_value(Theta, w_d, shots=16384)
+    phi_cudaq = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
     # phi_cudaq = cudaq_opt.estimate_expected_value_sv(Theta, w_d)
     # phi_cudaq = cudaq_opt.estimate_expected_value_observe(Theta)
     b_counts  = {}

@@ -618,8 +618,12 @@ class CudaqQAEOptimizer:
         probs = self.sample_ansatz(thetas, shots=shots)
         expectation = 0.0
         for bstr, prob in probs.items():
-            y_bits  = [int(b) for b in bstr[:self.n_y][::-1]]
-            xi_bits = [int(b) for b in bstr[self.n_y:][::-1]]
+            # CUDA-Q bitstring convention: qubit 0 = leftmost character.
+            # Kernel layout: y[0..n_y-1] = chars 0..n_y-1,
+            #                xi[0..n_y-1] = chars n_y..2*n_y-1.
+            # No reversal needed — c_y[j] correctly pairs with y[j] and xi[j].
+            y_bits  = [int(b) for b in bstr[:self.n_y]]
+            xi_bits = [int(b) for b in bstr[self.n_y:]]
             cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
             expectation += cost * prob
         return expectation
@@ -647,11 +651,12 @@ class CudaqQAEOptimizer:
             prob = abs(sv[i]) ** 2
             if prob < 1e-14:
                 continue
-            # Convert index to the same bitstring convention as cudaq.sample():
-            # qubit j is at position j in the bitstring (qubit 0 = LSB of i).
+            # State-vector index i: qubit j = bit j of i (qubit 0 = LSB).
+            # Reversing the binary string places qubit j at char position j,
+            # matching the CUDA-Q sample() convention (qubit 0 = leftmost).
             bstr = format(i, f'0{n_total}b')[::-1]
-            y_bits  = [int(b) for b in bstr[:self.n_y][::-1]]
-            xi_bits = [int(b) for b in bstr[self.n_y:][::-1]]
+            y_bits  = [int(b) for b in bstr[:self.n_y]]
+            xi_bits = [int(b) for b in bstr[self.n_y:]]
             cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
             expectation += cost * prob
         return expectation
