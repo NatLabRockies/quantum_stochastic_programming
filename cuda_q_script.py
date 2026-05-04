@@ -162,7 +162,7 @@ pdf = {tuple([int(v) for v in ('{0:0'+str(n_y)+'b}').format(i)]) : 1/2**n_y
 
 # DQA annealing schedule
 w_d       = int(d - sum(x0))  # wind demand = d - x
-cost_norm = w_d * c_r / n_y   # oracle normalization--upper bound for objective
+cost_norm = w_d * c_r         # oracle normalization--upper bound for objective
 m         = 4                 # QPE readout qubits for QAE
 norm      = w_d * c_r         # oracle amplitude normalisation (= 20)
 
@@ -189,6 +189,20 @@ bruteforce_vals = [bno.gas_costs[0]*x + exp_vals[d-x] for x in range(d+1)]
 
 print("Classical phi(wind_demand):", [round(v, 3) for v in exp_vals])
 print("Classical o(x):", [round(v, 3) for v in bruteforce_vals])
+
+# ── INITIAL STATE ENERGY (diagnostic) ─────────────────────────────────────
+# Before any DQA evolution, the state is Dicke|D_n^k⟩ ⊗ uniform|xi⟩.
+# The expected cost of this INITIAL state upper-bounds the DQA convergence:
+#   E_initial = sum(c_y)/n_y + c_r
+# For DQA to be useful the result must be substantially below this.
+# Convergence toward phi_classical requires O(n_y^2) or more time steps;
+# for n_y=10 with N_TIME_STEPS=100, expect only partial convergence.
+c_y_arr = np.array(c_y)
+initial_phi = float(c_y_arr.sum() / n_y + c_r)
+print(f"Initial state phi (Dicke ⊗ uniform xi): {initial_phi:.4f}")
+print(f"Classical optimum phi(w_d={w_d}):         {exp_vals[w_d]:.4f}")
+print(f"(DQA should reduce phi from {initial_phi:.2f} toward {exp_vals[w_d]:.4f}; "
+      f"needs ~{int(n_y**2)} time steps for n_y={n_y})")
 
 plt.plot(bruteforce_vals, '-o', label='o(x) classical')
 plt.xlabel(r'$x$'); plt.ylabel('Cost'); plt.title('Classical objective function')

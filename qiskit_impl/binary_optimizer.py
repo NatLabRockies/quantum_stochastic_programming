@@ -1233,17 +1233,24 @@ class BinaryNestedOptimizer:
         Args:
             wind_demand: Integer $k$ — required Hamming weight of turbine decisions.
             counts: Dict `{bitstring: probability}` from `execute_optimizer()`.
-                Bitstring layout: `[y_0, ..., y_{n-1}, xi_0, ..., xi_{n-1}]`.
+                Qiskit bitstring layout (qubit 0 = rightmost character):
+                ``[xi_{n-1} ... xi_0 | y_{n-1} ... y_0]``
+                so the first half (left) is the reversed xi register and
+                the second half (right) is the reversed y register.
 
         Returns:
             Float — estimated expected second-stage cost $\\tilde{\\phi}(x)$.
         """
         expectation_value = 0.
-        for bstr,val in counts.items():
+        for bstr, val in counts.items():
             output = self.bstr_to_output(bstr)
-            wind_output = output[:int(len(output)/2)]
-            pdf_output = output[int(len(output)/2):]
-            expectation_value += self.wind_scenario_cost(wind_output, pdf_output, wind_demand)*val
+            n = len(output) // 2
+            # Qiskit convention: qubit k appears at position (2n-1-k) from the left.
+            # First half  = qubits 2n-1..n  = xi[n-1..0]  → reverse to get xi[0..n-1]
+            # Second half = qubits n-1..0   = y[n-1..0]   → reverse to get y[0..n-1]
+            wind_output = output[n:][::-1]   # y in natural qubit order
+            pdf_output  = output[:n][::-1]   # xi in natural qubit order
+            expectation_value += self.wind_scenario_cost(wind_output, pdf_output, wind_demand) * val
         return expectation_value
 
 
