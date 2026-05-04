@@ -175,3 +175,5 @@ cython_debug/
 
 # MkDocs generated site
 site/
+
+.vscode/

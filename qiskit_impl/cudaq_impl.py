@@ -297,7 +297,7 @@ def fswap_power(beta: float, q0: cudaq.qubit, q1: cudaq.qubit):
 @cudaq.kernel
 def mixer(beta: float, y: cudaq.qview):
     for j in range(len(y)):
-        for k in range(j, len(y)):
+        for k in range(j + 1, len(y)):
             fswap_power(beta, y[j], y[k])
         # end for k
     # end for j
