@@ -134,20 +134,21 @@ print(f"\nActive backend: {BACKEND}")
 
 # %%
 # ── PROBLEM PARAMETERS (shared by all backends) ────────────────────────────────
-n_y  = 4        # wind turbines
+n_y  = 10        # wind turbines
 # n_xi = 4        # xi register qubits (= n_y for uniform pdf)
 n_xi = n_y      # n_xi == n_y pretty much always...
 n_x  = 1        # gas generators
-d    = n_y      # total demand
+d    = 4      # total demand
 
 c_x  = [3.]
-c_y  = [0.4, 0.5, 0.7, 1.0]
+# c_y  = [0.4, 0.5, 0.7, 1.0]
+c_y = np.linspace(0.1, 1.0, n_y)
 c_r  = 10.0
 
 x0 = [2.0] # First stage value to compute expectation for
 
 # -------- CIRCUIT PARAMETERS -------- #
-N_TIME_STEPS = 4
+N_TIME_STEPS = 8
 
 assert(len(c_y) == n_y)
 assert(len(c_x) == n_x)
@@ -158,10 +159,10 @@ pdf = {tuple([int(v) for v in ('{0:0'+str(n_y)+'b}').format(i)]) : 1/2**n_y
        for i in range(2**n_y)}
 
 # DQA annealing schedule
-w_d       = d - sum(x0)      # wind demand = d - x
-cost_norm = w_d * c_r / n_y  # oracle normalization--upper bound for objective
-m         = 4                # QPE readout qubits for QAE
-norm      = w_d * c_r        # oracle amplitude normalisation (= 20)
+w_d       = int(d - sum(x0))  # wind demand = d - x
+cost_norm = w_d * c_r / n_y   # oracle normalization--upper bound for objective
+m         = 4                 # QPE readout qubits for QAE
+norm      = w_d * c_r         # oracle amplitude normalisation (= 20)
 
 timesteps = N_TIME_STEPS
 Theta = []
@@ -292,6 +293,8 @@ if BACKEND in ('cpu', 'aer-gpu'):
 
 elif BACKEND == 'cuda-q':
     phi_cudaq = cudaq_opt.estimate_expected_value(Theta, w_d, shots=16384)
+    # phi_cudaq = cudaq_opt.estimate_expected_value_sv(Theta, w_d)
+    # phi_cudaq = cudaq_opt.estimate_expected_value_observe(Theta)
     b_counts  = {}
     print(f"[cuda-q] CUDA-Q estimate_expected_value = {phi_cudaq:.4f}")
 
