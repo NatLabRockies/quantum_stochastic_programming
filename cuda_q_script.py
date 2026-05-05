@@ -185,8 +185,19 @@ from scipy.optimize import minimize
 # bno is needed by both COBYLA and the classical section below
 bno = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
 
-def _dqa_expected_value_cpu(theta_flat: list[float]) -> float:
-    """Evaluate DQA expected value via exact CPU statevector (for COBYLA)."""
+# For cuda-q, create the optimizer now so COBYLA uses the same kernel
+if BACKEND == 'cuda-q':
+    cudaq_opt = CudaqQAEOptimizer(c_x=c_x, c_y=c_y, c_r=c_r,
+                                  n_y=n_y, w_d=w_d, cost_norm=cost_norm)
+
+def _dqa_expected_value(theta_flat: list[float]) -> float:
+    """Evaluate DQA expected value for COBYLA.
+    cuda-q: uses exact statevector via the cudaq kernel (no angle mismatch).
+    cpu/aer-gpu: uses Qiskit exact CPU statevector.
+    """
+    if BACKEND == 'cuda-q':
+        return cudaq_opt.estimate_expected_value_sv(list(theta_flat), w_d)
+    # cpu / aer-gpu path
     y_reg   = list(range(n_y))
     pdf_reg = list(range(n_y, 2*n_y))
     args = {
@@ -214,10 +225,10 @@ for t in range(timesteps):
 import time as _time
 
 if USE_COBYLA:
-    print(f"Optimising {len(theta0)} DQA angles with COBYLA ({timesteps} timesteps)…")
+    print(f"Optimising {len(theta0)} DQA angles with COBYLA ({timesteps} timesteps) via {BACKEND}…")
     _t_opt = _time.perf_counter()
     result = minimize(
-        _dqa_expected_value_cpu,
+        _dqa_expected_value,
         theta0,
         method='COBYLA',
         options={'maxiter': 500, 'rhobeg': 0.5, 'disp': False},
@@ -307,9 +318,7 @@ elif BACKEND == 'aer-gpu':
     print(f"[aer-gpu] AerSimulator statevector — {len(dqa_counts)} bitstrings")
 
 elif BACKEND == 'cuda-q':
-    # CUDA-Q native kernel execution
-    cudaq_opt = CudaqQAEOptimizer(c_x=c_x, c_y=c_y, c_r=c_r,
-                                  n_y=n_y, w_d=w_d, cost_norm=cost_norm)
+    # cudaq_opt already created above (before COBYLA) — reuse it
     dqa_counts = cudaq_opt.sample_ansatz(Theta, shots=N_SHOTS)
     print(f"[cuda-q] cudaq.sample — {len(dqa_counts)} bitstrings")
 
