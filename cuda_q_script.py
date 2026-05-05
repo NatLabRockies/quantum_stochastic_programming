@@ -150,7 +150,7 @@ x0 = [2] # First stage value to compute expectation for
 # -------- CIRCUIT PARAMETERS -------- #
 N_TIME_STEPS = 100
 N_SHOTS      = 2**12
-USE_COBYLA   = True   # True: optimise DQA angles via COBYLA; False: use linear ramp
+USE_COBYLA   = False  # True: optimise DQA angles via COBYLA; False: use linear ramp
 # ------------------------------------ #
 
 assert(len(c_y) == n_y)
