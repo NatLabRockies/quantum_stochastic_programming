@@ -564,6 +564,7 @@ class CudaqQAEOptimizer:
         self.c_y = list(c_y)
         self.c_r = float(c_r)
         self.n_y = n_y
+        self.n_xi = n_xi
         self.w_d = w_d
         self.cost_norm = cost_norm
         self.dang = dicke_state_angles(n_y, w_d)
