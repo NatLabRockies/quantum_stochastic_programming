@@ -28,12 +28,14 @@ cudaq = pytest.importorskip('cudaq', reason='cudaq not installed; skipping CUDA-
 from cudaq_impl import (
     pdf_init_uniform,
     dicke_state_n4_k2,
+    dicke_state_angles,
+    dicke_state,
     ccry,
-    cost_operator_n4,
+    cost_operator,
     fswap_power,
-    mixer_n4,
-    oracle_sin_n4,
-    dqa_ansatz_n4,
+    mixer,
+    oracle_sin,
+    dqa_ansatz,
     CudaqQAEOptimizer,
 )
 
@@ -190,40 +192,114 @@ class TestDickeStateN4K2:
 
 
 # =============================================================================
-# cost_operator_n4
-# Qiskit ref: ExpValFun_functions.cost_operator(amplitude, args)
-# The cost operator is diagonal and adds phases — checking it via a Hamiltonian
-# observable is the cleanest approach; here we verify it does not change
-# the distribution (no measurement change, only phases).
+# dicke_state_angles + dicke_state  (generalized)
+# Qiskit ref: ExpValFun_functions.dicke_state_circuit(args)
 # =============================================================================
 
-class TestCostOperatorN4:
+class TestDickeStateAngles:
+    def test_n4_k2_matches_hardcoded(self):
+        """dicke_state_angles(4,2) must match the inline constants in dicke_state_n4_k2."""
+        angles = dicke_state_angles(4, 2)
+        expected = [
+            2.0 * math.acos(math.sqrt(1/4)),  # SCS(4,2) j=1
+            2.0 * math.acos(math.sqrt(2/4)),  # SCS(4,2) j=2  (= pi/2)
+            2.0 * math.acos(math.sqrt(1/3)),  # SCS(3,2) j=1
+            2.0 * math.acos(math.sqrt(2/3)),  # SCS(3,2) j=2
+            2.0 * math.acos(math.sqrt(1/2)),  # SCS(2,1) j=1  (= pi/2)
+        ]
+        assert len(angles) == len(expected)
+        for i, (a, e) in enumerate(zip(angles, expected)):
+            assert abs(a - e) < 1e-12, f"Angle {i}: {a} != {e}"
+
+    def test_length_formula(self):
+        """Total angle count = (n-k)*k + k*(k-1)//2."""
+        for n, k in [(4, 2), (5, 2), (6, 3), (4, 1)]:
+            angles = dicke_state_angles(n, k)
+            expected_len = (n - k) * k + k * (k - 1) // 2
+            assert len(angles) == expected_len, (
+                f"n={n}, k={k}: got {len(angles)}, expected {expected_len}")
+
+    def test_all_angles_positive(self):
+        """All SCS angles should be in (0, pi]."""
+        for n, k in [(4, 2), (5, 3), (6, 2)]:
+            for a in dicke_state_angles(n, k):
+                assert 0 < a <= math.pi + 1e-12, f"Angle {a} out of range for n={n}, k={k}"
+
+
+class TestDickeStateGeneralized:
+    """Tests for the generalized dicke_state kernel."""
+
+    def _sample_dicke(self, n, k):
+        angles = dicke_state_angles(n, k)
+        @cudaq.kernel
+        def wrapper(n_: int, k_: int, ang: list[float]):
+            y = cudaq.qvector(n_)
+            dicke_state(n_, k_, ang, y)
+        counts = cudaq.sample(wrapper, n, k, angles, shots_count=8192)
+        return _probabilities_from_counts(counts)
+
+    def test_n4_k2_hamming_weight(self):
+        """dicke_state(4,2) — all bitstrings must have Hamming weight 2."""
+        probs = self._sample_dicke(4, 2)
+        for bstr in probs:
+            assert sum(int(b) for b in bstr) == 2, f"Bad hw in {bstr}"
+
+    def test_n4_k2_exactly_six_states(self):
+        """dicke_state(4,2) — exactly C(4,2)=6 bitstrings."""
+        probs = self._sample_dicke(4, 2)
+        assert len(probs) == 6, f"Expected 6, got {len(probs)}: {list(probs.keys())}"
+
+    def test_n4_k2_uniform(self):
+        """dicke_state(4,2) — each state probability ≈ 1/6."""
+        probs = self._sample_dicke(4, 2)
+        for bstr, p in probs.items():
+            assert abs(p - 1/6) < 0.06, f"{bstr}: p={p:.4f}"
+
+    def test_n4_k1_hamming_weight(self):
+        """dicke_state(4,1) — all bitstrings must have Hamming weight 1."""
+        probs = self._sample_dicke(4, 1)
+        for bstr in probs:
+            assert sum(int(b) for b in bstr) == 1, f"Bad hw in {bstr}"
+
+    def test_n4_k1_exactly_four_states(self):
+        """dicke_state(4,1) — exactly C(4,1)=4 bitstrings."""
+        probs = self._sample_dicke(4, 1)
+        assert len(probs) == 4, f"Expected 4, got {len(probs)}"
+
+
+# =============================================================================
+# cost_operator  (generalized, replaces cost_operator_n4)
+# Qiskit ref: ExpValFun_functions.cost_operator(amplitude, args)
+# =============================================================================
+
+class TestCostOperator:
     def test_does_not_change_marginal_distribution(self):
         """Phase operator must not change measurement probabilities."""
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+
         @cudaq.kernel
-        def before():
+        def before(ang: list[float]):
             y  = cudaq.qvector(N_Y)
             xi = cudaq.qvector(N_Y)
-            dicke_state_n4_k2(y)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
             pdf_init_uniform(xi)
 
         @cudaq.kernel
-        def after():
+        def after(ang: list[float], c_y: list[float], c_r_: float, cn: float):
             y  = cudaq.qvector(N_Y)
             xi = cudaq.qvector(N_Y)
-            dicke_state_n4_k2(y)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
             pdf_init_uniform(xi)
-            cost_operator_n4(0.5,
-                             C_Y[0], C_Y[1], C_Y[2], C_Y[3],
-                             C_R, COST_NORM, y, xi)
+            cost_operator(0.5, c_y, c_r_, cn, y, xi)
 
         shots = 4096
-        probs_before = _probabilities_from_counts(cudaq.sample(before, shots_count=shots))
-        probs_after  = _probabilities_from_counts(cudaq.sample(after,  shots_count=shots))
+        probs_before = _probabilities_from_counts(
+            cudaq.sample(before, angles_42, shots_count=shots))
+        probs_after  = _probabilities_from_counts(
+            cudaq.sample(after, angles_42, C_Y, C_R, COST_NORM, shots_count=shots))
 
         for bstr, p_b in probs_before.items():
             p_a = probs_after.get(bstr, 0)
-            # Distributions should be statistically similar (within 3 sigma ≈ 0.04)
             assert abs(p_b - p_a) < 0.06, (
                 f"Bitstring {bstr}: before={p_b:.4f}, after={p_a:.4f}")
 
@@ -264,15 +340,19 @@ class TestFswapPower:
         assert probs[most_probable] > 0.9
 
 
-class TestMixerN4:
+class TestMixer:
+    """Tests for the generalized mixer kernel (replaces mixer_n4)."""
+
     def test_mixer_preserves_hamming_weight(self):
         """XY mixer must preserve sum(y) = wind_demand (Hamming weight)."""
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+
         @cudaq.kernel
-        def wrapper():
+        def wrapper(ang: list[float]):
             y = cudaq.qvector(N_Y)
-            dicke_state_n4_k2(y)
-            mixer_n4(0.5, y)
-        counts = cudaq.sample(wrapper, shots_count=4096)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
+            mixer(0.5, y)
+        counts = cudaq.sample(wrapper, angles_42, shots_count=4096)
         probs = _probabilities_from_counts(counts)
         for bstr in probs:
             hw = sum(int(b) for b in bstr)
@@ -280,92 +360,88 @@ class TestMixerN4:
                 f"Mixer changed Hamming weight: {bstr} has {hw} ones")
 
     def test_mixer_still_uniform_after_application(self):
-        """After mixing, all 6 feasible bitstrings should remain reachable.
+        """After mixing, all 6 feasible bitstrings should remain reachable."""
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
 
-        Note: applying SwapGate().power(beta) per pair is a Trotter-style
-        approximation — non-commuting pair terms redistribute amplitude unevenly
-        at non-trivial beta, so *uniform* distribution is NOT guaranteed.
-        The correct property is that all C(4,2)=6 states remain accessible and
-        no single state captures all the amplitude.
-        """
         @cudaq.kernel
-        def wrapper():
+        def wrapper(ang: list[float]):
             y = cudaq.qvector(N_Y)
-            dicke_state_n4_k2(y)
-            mixer_n4(0.5, y)
-        counts = cudaq.sample(wrapper, shots_count=8192)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
+            mixer(0.5, y)
+        counts = cudaq.sample(wrapper, angles_42, shots_count=8192)
         probs = _probabilities_from_counts(counts)
-        # All 6 feasible states should be reachable
         assert len(probs) == 6, (
             f"Expected 6 reachable bitstrings after mixing, got {len(probs)}")
-        # No single state should dominate > 80% (mixing spreads amplitude)
         max_p = max(probs.values())
         assert max_p < 0.8, (
             f"Mixer collapsed amplitude: max_p={max_p:.3f}")
 
 
 # =============================================================================
-# oracle_sin_n4
+# oracle_sin  (generalized, replaces oracle_sin_n4)
 # Qiskit ref: ExpValFun_functions.single_oracle_sin_inconstraint(args)
 # Key property: ancilla starts at |0>; after oracle Pr[ancilla=1] ≈ normalized cost
 # =============================================================================
 
-class TestOracleSinN4:
+class TestOracleSin:
     def test_ancilla_rotates_away_from_zero(self):
         """After oracle, Pr[ancilla=1] should be > 0."""
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+
         @cudaq.kernel
-        def wrapper():
+        def wrapper(ang: list[float], c_y: list[float], c_r_: float, norm: float):
             y       = cudaq.qvector(N_Y)
             xi      = cudaq.qvector(N_Y)
             ancilla = cudaq.qubit()
-            dicke_state_n4_k2(y)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
             pdf_init_uniform(xi)
-            oracle_sin_n4(C_Y[0], C_Y[1], C_Y[2], C_Y[3],
-                          C_R, WIND_DEMAND * C_R,
-                          y, xi, ancilla)
+            oracle_sin(c_y, c_r_, norm, y, xi, ancilla)
 
-        counts = cudaq.sample(wrapper, shots_count=4096)
-        probs   = _probabilities_from_counts(counts)
-        # ancilla is the last qubit in the string; check any bstr ending in '1'
+        counts = cudaq.sample(wrapper, angles_42, C_Y, C_R, WIND_DEMAND * C_R,
+                              shots_count=4096)
+        probs = _probabilities_from_counts(counts)
         p_ancilla_1 = sum(v for k, v in probs.items() if k[-1] == '1')
         assert p_ancilla_1 > 0.01, (
             f"Ancilla barely rotated: Pr[anc=1]={p_ancilla_1:.4f}")
 
     def test_ancilla_in_unit_interval(self):
         """Pr[ancilla=1] must be in [0, 1]."""
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+
         @cudaq.kernel
-        def wrapper():
+        def wrapper(ang: list[float], c_y: list[float], c_r_: float, norm: float):
             y       = cudaq.qvector(N_Y)
             xi      = cudaq.qvector(N_Y)
             ancilla = cudaq.qubit()
-            dicke_state_n4_k2(y)
+            dicke_state(N_Y, WIND_DEMAND, ang, y)
             pdf_init_uniform(xi)
-            oracle_sin_n4(C_Y[0], C_Y[1], C_Y[2], C_Y[3],
-                          C_R, WIND_DEMAND * C_R,
-                          y, xi, ancilla)
+            oracle_sin(c_y, c_r_, norm, y, xi, ancilla)
 
-        counts = cudaq.sample(wrapper, shots_count=4096)
-        probs   = _probabilities_from_counts(counts)
+        counts = cudaq.sample(wrapper, angles_42, C_Y, C_R, WIND_DEMAND * C_R,
+                              shots_count=4096)
+        probs = _probabilities_from_counts(counts)
         p_ancilla_1 = sum(v for k, v in probs.items() if k[-1] == '1')
         assert 0.0 <= p_ancilla_1 <= 1.0
 
 
 # =============================================================================
-# dqa_ansatz_n4
+# dqa_ansatz  (generalized, replaces dqa_ansatz_n4)
 # Qiskit ref: ExpValFun_functions.alternating_operator_ansatz(args)
 # Key properties:
-#   - Total 8 qubits (y[0..3] + xi[0..3])
+#   - Total 2*n_y qubits (y[0..n_y-1] + xi[0..n_y-1])
 #   - y register satisfies Hamming weight = WIND_DEMAND throughout
 # =============================================================================
 
-class TestDQAAnsatzN4:
+class TestDQAAnsatz:
     @pytest.fixture(scope='class')
     def probs(self):
+        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
         counts = cudaq.sample(
-            dqa_ansatz_n4,
-            C_Y[0], C_Y[1], C_Y[2], C_Y[3],
-            C_R, COST_NORM,
-            THETAS, len(THETAS) // 2,
+            dqa_ansatz,
+            angles_42,
+            C_Y, C_R, COST_NORM,
+            WIND_DEMAND,
+            THETAS, len(THETAS) // 2, N_Y,
             shots_count=4096)
         return _probabilities_from_counts(counts)
 
@@ -413,8 +489,8 @@ class TestCudaqQAEOptimizer:
         assert opt.w_d == WIND_DEMAND
 
     def test_unsupported_n_y_raises(self):
-        with pytest.raises(NotImplementedError):
-            CudaqQAEOptimizer(c_x=[3.], c_y=[0.5] * 6, c_r=10., n_y=6)
+        """jm-dev removed the n_y != 4 restriction; skip this check."""
+        pytest.skip("Generic n_y is now supported; NotImplementedError no longer raised")
 
     def test_sample_ansatz_returns_prob_dict(self, opt):
         probs = opt.sample_ansatz(THETAS, shots=1024)
