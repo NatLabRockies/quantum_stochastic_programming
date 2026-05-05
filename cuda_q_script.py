@@ -15,7 +15,7 @@
 # ── BACKEND TOGGLE ─────────────────────────────────────────────────────────────
 # Change this variable to switch the entire notebook's execution path.
 # Options: 'cpu' | 'aer-gpu' | 'cuda-q'
-BACKEND = 'cuda-q'
+BACKEND = 'aer-gpu'
 
 # ── Optional: ipywidgets interactive toggle (works in JupyterLab) ───────────────
 try:
@@ -53,9 +53,9 @@ import matplotlib.pyplot as plt
 # Add the qiskit/aer-gpu venv site-packages so the Jupyter kernel (which starts
 # without 'module load qiskit') can find qiskit, qiskit_aer, cudaq, etc.
 _QISKIT_SP = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
+_QISKIT_IMPL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qiskit_impl')
 # _QISKIT_IMPL = '/projects/hpcapps/nsawant/quantum_stochastic_programming/qiskit_impl'
-# _QISKIT_IMPL = './qiskit_impl'
-_QISKIT_IMPL = '/projects/msoc/jmaack/quantum_stochastic_programming/qiskit_impl'
+# _QISKIT_IMPL = '/projects/msoc/jmaack/quantum_stochastic_programming/qiskit_impl'
 
 for _p in [_QISKIT_SP, _QISKIT_IMPL]:
     if _p not in sys.path:
@@ -134,11 +134,11 @@ print(f"\nActive backend: {BACKEND}")
 
 # %%
 # ── PROBLEM PARAMETERS (shared by all backends) ────────────────────────────────
-n_y  = 10        # wind turbines
+n_y  = 6         # wind turbines
 # n_xi = 4        # xi register qubits (= n_y for uniform pdf)
 n_xi = n_y      # n_xi == n_y pretty much always...
 n_x  = 1        # gas generators
-d    = 4      # total demand
+d    = n_y      # total demand (must equal n_y for the problem to be well-posed)
 
 c_x  = [3.]
 # c_y  = [0.4, 0.5, 0.7, 1.0]
@@ -149,7 +149,8 @@ x0 = [2] # First stage value to compute expectation for
 
 # -------- CIRCUIT PARAMETERS -------- #
 N_TIME_STEPS = 100
-N_SHOTS = 2**12
+N_SHOTS      = 2**12
+USE_COBYLA   = True   # True: optimise DQA angles via COBYLA; False: use linear ramp
 # ------------------------------------ #
 
 assert(len(c_y) == n_y)
@@ -162,17 +163,73 @@ pdf = {tuple([int(v) for v in ('{0:0'+str(n_y)+'b}').format(i)]) : 1/2**n_y
 
 # DQA annealing schedule
 w_d       = int(d - sum(x0))  # wind demand = d - x
-cost_norm = w_d * c_r         # oracle normalization--upper bound for objective
-m         = 4                 # QPE readout qubits for QAE
-norm      = w_d * c_r         # oracle amplitude normalisation (= 20)
+cost_norm = w_d * c_r / n_y   # DQA cost operator normalisation (per-turbine upper bound)
+m         = 5                 # QPE readout qubits for QAE (5 gives Δφ ≈ norm/32)
+norm      = w_d * c_r         # QAE oracle amplitude normalisation -- must be >= max possible cost
+                              # max cost = w_d shortfall × c_r when all turbines produce nothing
 
-timesteps = N_TIME_STEPS
-Theta = []
-for t in range(timesteps):
-    Theta.append(float(t / timesteps))           # gamma_t
-    Theta.append((1 - float(t / timesteps)) / math.pi)  # beta_t
+timesteps = n_y               # number of DQA timesteps (scales with problem size)
 
 print(f"n_y={n_y}, w_d={w_d}, c_y={c_y}, c_r={c_r}")
+
+# %% [markdown]
+# ## DQA Angle Optimisation (COBYLA)
+#
+# Use COBYLA to minimise $\phi$ over the $2p$ DQA angles $(\gamma_t, \beta_t)$.
+# Optimisation always uses the exact CPU statevector path regardless of BACKEND.
+
+# %%
+# ── COBYLA OPTIMISATION OF DQA ANGLES ─────────────────────────────────────────
+from scipy.optimize import minimize
+
+# bno is needed by both COBYLA and the classical section below
+bno = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
+
+def _dqa_expected_value_cpu(theta_flat: list[float]) -> float:
+    """Evaluate DQA expected value via exact CPU statevector (for COBYLA)."""
+    y_reg   = list(range(n_y))
+    pdf_reg = list(range(n_y, 2*n_y))
+    args = {
+        'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
+        'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
+        'y_reg': y_reg, 'pdf_reg': pdf_reg,
+        'Theta': list(theta_flat), 'w_d': w_d, 'cost_norm': cost_norm,
+        'uniform': True,
+        'cost_operator_circuit':   exp.cost_operator,
+        'mixer_operator_circuit':  exp.demand_constraint_preserving_mixer,
+        'initial_state_circuit':   exp.dicke_state_circuit,
+        'pdf_circuit':             pdf_initialize,
+    }
+    circ = exp.alternating_operator_ansatz(args)
+    sv   = Statevector.from_label('0' * (n_y + n_xi)).evolve(circ)
+    counts = sv.probabilities_dict()
+    return bno.process_expectation_value_optimizer(w_d, counts)
+
+# Initial Theta: linear ramp (warm start for COBYLA)
+theta0 = []
+for t in range(timesteps):
+    theta0.append(float(t / timesteps))
+    theta0.append((1 - float(t / timesteps)) / math.pi)
+
+import time as _time
+
+if USE_COBYLA:
+    print(f"Optimising {len(theta0)} DQA angles with COBYLA ({timesteps} timesteps)…")
+    _t_opt = _time.perf_counter()
+    result = minimize(
+        _dqa_expected_value_cpu,
+        theta0,
+        method='COBYLA',
+        options={'maxiter': 500, 'rhobeg': 0.5, 'disp': False},
+    )
+    Theta = list(result.x)
+    _elapsed_opt = _time.perf_counter() - _t_opt
+    print(f"COBYLA done in {_elapsed_opt:.1f}s | {result.nfev} evals | "
+          f"phi = {result.fun:.4f} (success={result.success})")
+else:
+    Theta = theta0
+    print(f"COBYLA disabled — using linear ramp ({len(Theta)} angles)")
+
 print(f"Theta ({len(Theta)} angles): {[round(v,3) for v in Theta]}")
 
 # %% [markdown]
@@ -182,10 +239,8 @@ print(f"Theta ({len(Theta)} angles): {[round(v,3) for v in Theta]}")
 
 # %%
 # ── CLASSICAL SOLUTION (same for all backends) ─────────────────────────────────
-bno = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
-
 exp_vals        = bno.brute_force_wind_demand_expectation_values()
-bruteforce_vals = [bno.gas_costs[0]*x + exp_vals[d-x] for x in range(d+1)]
+bruteforce_vals = [bno.gas_costs[0]*x + exp_vals[n_y-x] for x in range(n_y+1)]
 
 print("Classical phi(wind_demand):", [round(v, 3) for v in exp_vals])
 print("Classical o(x):", [round(v, 3) for v in bruteforce_vals])
