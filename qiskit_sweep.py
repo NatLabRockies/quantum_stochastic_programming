@@ -24,7 +24,7 @@ from binary_optimizer import BinaryNestedOptimizer
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
 N_Y_VALUES = range(4, 18, 2)   # n_y values to sweep
 N_SHOTS    = 2**14             # shots for AerSimulator QAE (not used for exact SV)
-USE_EXACT_SV = True            # True: exact statevector (no shots); False: AerSimulator shots
+USE_EXACT_SV = False            # True: exact statevector (no shots); False: AerSimulator shots
 
 # Fixed first-stage parameters
 n_x = 1

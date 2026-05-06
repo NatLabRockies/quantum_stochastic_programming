@@ -35,7 +35,10 @@ except Exception as e:
 N_Y_VALUES = range(4, 18, 2)
 N_SHOTS    = 2**14
 USE_COBYLA = False
+RUN_DQA    = True   # execute DQA estimation
+RUN_QAE    = True   # execute QAE estimation
 # m          = 5                    # QPE readout qubits
+m_qpe    = 5   # QPE readout qubits; estimation error ~ π·norm/2^m_qpe
 
 # Fixed first-stage parameters
 n_x = 1
@@ -70,6 +73,9 @@ for n_y in N_Y_VALUES:
     }
 
     print(f"  c_y={[round(v,2) for v in c_y]}, w_d={w_d}, norm={norm:.1f}")
+    n_qubits_dqa = 2 * n_y
+    n_qubits_qae = m_qpe + 2 * n_y + 1   # QPE + system + ancilla
+    print(f"  Qubits: DQA={n_qubits_dqa}, QAE={n_qubits_qae}")
 
     # ── DQA ANGLES ──────────────────────────────────────────────────────────
     cudaq_opt = CudaqQAEOptimizer(
@@ -97,28 +103,20 @@ for n_y in N_Y_VALUES:
         print(f"  Linear ramp ({len(Theta)} angles, COBYLA disabled)")
 
     # ── DQA EXECUTION ────────────────────────────────────────────────────────
-    t0         = time.perf_counter()
-    dqa_counts = cudaq_opt.sample_ansatz(Theta, shots=N_SHOTS)
-    dqa_time   = time.perf_counter() - t0
-
-    expectation = 0.0
-    for bstr, prob in dqa_counts.items():
-        y_bits      = [int(b) for b in bstr[:n_y]]
-        xi_bits     = [int(b) for b in bstr[n_y:]]
-        true_output = np.array(y_bits) * np.array(xi_bits)
-        op_cost     = float(np.dot(c_y, true_output))
-        shortfall   = max(0, w_d - int(true_output.sum()))
-        expectation += (op_cost + shortfall * c_r) * prob
-    dqa_phi = expectation
-
-    print(f"  DQA  phi(w_d={w_d}) = {dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms)")
+    dqa_phi, dqa_time = None, None
+    if RUN_DQA:
+        t0       = time.perf_counter()
+        dqa_phi  = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
+        dqa_time = time.perf_counter() - t0
+        print(f"  DQA  phi(w_d={w_d}) = {dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms)")
 
     # ── QAE EXECUTION ────────────────────────────────────────────────────────
-    t0      = time.perf_counter()
-    qae_phi = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
-    qae_time = time.perf_counter() - t0
-
-    print(f"  QAE  phi(w_d={w_d}) = {qae_phi:.4f}  ({qae_time*1e3:.1f} ms)")
+    qae_phi, qae_time = None, None
+    if RUN_QAE:
+        t0       = time.perf_counter()
+        qae_phi  = cudaq_opt.estimate_expected_value_qae(Theta, m=m_qpe, shots=N_SHOTS)
+        qae_time = time.perf_counter() - t0
+        print(f"  QAE  phi(w_d={w_d}) = {qae_phi:.4f}  ({qae_time*1e3:.1f} ms)")
 
     results.append({
         'n_y':      n_y,
@@ -131,26 +129,30 @@ for n_y in N_Y_VALUES:
 
 # ── SUMMARY TABLE ──────────────────────────────────────────────────────────────
 print(f"\n{'='*60}")
-print(f"{'n_y':>6} {'w_d':>5} {'DQA phi':>10} {'QAE phi':>10} {'DQA ms':>10} {'QAE ms':>10}")
-print(f"{'-'*6} {'-'*5} {'-'*10} {'-'*10} {'-'*10} {'-'*10}")
+hdr = f"{'n_y':>6} {'w_d':>5}"
+if RUN_DQA: hdr += f" {'DQA phi':>10} {'DQA ms':>10}"
+if RUN_QAE: hdr += f" {'QAE phi':>10} {'QAE ms':>10}"
+sep = f"{'-'*6} {'-'*5}"
+if RUN_DQA: sep += f" {'-'*10} {'-'*10}"
+if RUN_QAE: sep += f" {'-'*10} {'-'*10}"
+print(hdr)
+print(sep)
 for r in results:
-    print(
-        f"{r['n_y']:>6} {r['w_d']:>5} {r['dqa_phi']:>10.4f} {r['qae_phi']:>10.4f} "
-        f"{r['dqa_time']*1e3:>10.1f} {r['qae_time']*1e3:>10.1f}"
-    )
+    row = f"{r['n_y']:>6} {r['w_d']:>5}"
+    if RUN_DQA: row += f" {r['dqa_phi']:>10.4f} {r['dqa_time']*1e3:>10.1f}"
+    if RUN_QAE: row += f" {r['qae_phi']:>10.4f} {r['qae_time']*1e3:>10.1f}"
+    print(row)
 
 # ── PLOTS ──────────────────────────────────────────────────────────────────────
-n_y_vals  = [r['n_y']           for r in results]
-dqa_phis  = [r['dqa_phi']       for r in results]
-qae_phis  = [r['qae_phi']       for r in results]
-dqa_times = [r['dqa_time']*1e3  for r in results]
-qae_times = [r['qae_time']*1e3  for r in results]
+n_y_vals = [r['n_y'] for r in results]
 
 fig, axes = plt.subplots(1, 2, figsize=(13, 4))
 
 ax = axes[0]
-ax.plot(n_y_vals, dqa_phis, '-o', label='DQA φ', color='steelblue')
-ax.plot(n_y_vals, qae_phis, '-s', label='QAE φ', color='salmon')
+if RUN_DQA:
+    ax.plot(n_y_vals, [r['dqa_phi'] for r in results], '-o', label='DQA φ', color='steelblue')
+if RUN_QAE:
+    ax.plot(n_y_vals, [r['qae_phi'] for r in results], '-s', label='QAE φ', color='salmon')
 ax.set_xlabel('$n_y$ (turbine qubits)')
 ax.set_ylabel(r'$\phi(w_d)$')
 ax.set_title('Expected value vs qubit count')
@@ -158,8 +160,10 @@ ax.legend()
 ax.grid(True, alpha=0.3)
 
 ax2 = axes[1]
-ax2.plot(n_y_vals, dqa_times, '-o', label='DQA wall time', color='steelblue')
-ax2.plot(n_y_vals, qae_times, '-s', label='QAE wall time', color='salmon')
+if RUN_DQA:
+    ax2.plot(n_y_vals, [r['dqa_time']*1e3 for r in results], '-o', label='DQA wall time', color='steelblue')
+if RUN_QAE:
+    ax2.plot(n_y_vals, [r['qae_time']*1e3 for r in results], '-s', label='QAE wall time', color='salmon')
 ax2.set_xlabel('$n_y$ (turbine qubits)')
 ax2.set_ylabel('Wall time (ms)')
 ax2.set_title('Wall time vs qubit count')
