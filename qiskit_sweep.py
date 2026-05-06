@@ -1,13 +1,12 @@
-# cuda_q_sweep.py
+# qiskit_sweep.py
 #
-# Sweeps n_y (qubit count) using only the CUDA-Q backend.
+# Sweeps n_y (qubit count) using the Qiskit CPU statevector backend.
 # Runs DQA + QAE for each n_y and plots phi estimates and wall times.
-# No classical validation — CUDA-Q only.
+# Mirrors cuda_q_sweep.py but dispatches via Qiskit Statevector / AerSimulator.
 
 import os, sys, math, time
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
 _QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
@@ -17,31 +16,22 @@ for _p in [_QISKIT_SP, _QISKIT_IMPL]:
         sys.path.insert(0, _p)
 os.chdir(_QISKIT_IMPL)
 
-from qae import *
+from qiskit.quantum_info import Statevector
+from qae import QAE_Optimizer, pdf_initialize
+import ExpValFun_functions as exp
 from binary_optimizer import BinaryNestedOptimizer
-import cudaq
-from cudaq_impl import CudaqQAEOptimizer
-
-# ── CUDA-Q TARGET ──────────────────────────────────────────────────────────────
-try:
-    cudaq.set_target('nvidia')
-    print("[cuda-q] target set to 'nvidia' (cuStateVec).")
-except Exception as e:
-    print(f"WARNING: nvidia target unavailable ({e}), falling back to qpp-cpu.")
-    cudaq.set_target('qpp-cpu')
 
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
-# N_Y_VALUES = [4, 6, 8, 10, 12]   # n_y values to sweep (must be >= 3 with x0=[2])
-N_Y_VALUES = range(4, 18, 2)
-N_SHOTS    = 2**14
-USE_COBYLA = False
-# m          = 5                    # QPE readout qubits
+N_Y_VALUES = range(4, 18, 2)   # n_y values to sweep
+N_SHOTS    = 2**14             # shots for AerSimulator QAE (not used for exact SV)
+USE_EXACT_SV = True            # True: exact statevector (no shots); False: AerSimulator shots
 
 # Fixed first-stage parameters
 n_x = 1
 c_x = [3.]
 c_r = 10.0
-x0  = [2]    # first-stage gas commitment; w_d = n_y - sum(x0) scales with n_y
+x0  = [2]   # first-stage gas commitment; w_d = n_y - sum(x0) scales with n_y
+m   = 5     # QPE readout qubits for QAE
 
 # ── RESULTS STORAGE ────────────────────────────────────────────────────────────
 results = []
@@ -56,9 +46,9 @@ for n_y in N_Y_VALUES:
     d         = n_y
     c_y       = list(np.linspace(0.1, 1.0, n_y))
     timesteps = n_y**2
-    w_d       = int(d - sum(x0))        # wind demand; scales as n_y grows
-    norm      = w_d * c_r               # QAE amplitude normalisation
-    cost_norm = w_d * c_r / n_y         # DQA cost operator normalisation
+    w_d       = int(d - sum(x0))
+    norm      = w_d * c_r
+    cost_norm = w_d * c_r / n_y
 
     if w_d <= 0:
         print(f"  Skipping n_y={n_y}: w_d={w_d} <= 0 (x0={x0} covers full demand).")
@@ -71,52 +61,68 @@ for n_y in N_Y_VALUES:
 
     print(f"  c_y={[round(v,2) for v in c_y]}, w_d={w_d}, norm={norm:.1f}")
 
-    # ── DQA ANGLES ──────────────────────────────────────────────────────────
-    cudaq_opt = CudaqQAEOptimizer(
-        c_x=c_x, c_y=c_y, c_r=c_r,
-        n_y=n_y, w_d=w_d, cost_norm=cost_norm,
-    )
+    bno = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
 
+    # ── DQA ANGLES (linear ramp) ─────────────────────────────────────────────
     theta0 = []
     for t in range(timesteps):
         theta0.append(float(t / timesteps))
         theta0.append((1 - float(t / timesteps)) / math.pi)
+    Theta = theta0
+    print(f"  Linear ramp ({len(Theta)} angles)")
 
-    if USE_COBYLA:
-        print(f"  Optimising {len(theta0)} angles with COBYLA …")
-        opt_result = minimize(
-            lambda th: cudaq_opt.estimate_expected_value_sv(list(th), w_d),
-            theta0,
-            method='COBYLA',
-            options={'maxiter': 500, 'rhobeg': 0.5, 'disp': False},
-        )
-        Theta = list(opt_result.x)
-        print(f"  COBYLA done | phi={opt_result.fun:.4f} | {opt_result.nfev} evals")
-    else:
-        Theta = theta0
-        print(f"  Linear ramp ({len(Theta)} angles, COBYLA disabled)")
+    # ── BUILD SHARED DQA CIRCUIT ─────────────────────────────────────────────
+    y_reg   = list(range(n_y))
+    pdf_reg = list(range(n_y, 2 * n_y))
+
+    args_dqa = {
+        'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
+        'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
+        'y_reg': y_reg, 'pdf_reg': pdf_reg,
+        'Theta': Theta, 'w_d': w_d, 'cost_norm': cost_norm,
+        'uniform': True,
+        'cost_operator_circuit':  exp.cost_operator,
+        'mixer_operator_circuit': exp.demand_constraint_preserving_mixer,
+        'initial_state_circuit':  exp.dicke_state_circuit,
+        'pdf_circuit':            pdf_initialize,
+    }
+    dqa_circuit = exp.alternating_operator_ansatz(args_dqa)
+    print(f"  DQA circuit: {dqa_circuit.num_qubits} qubits, depth={dqa_circuit.depth()}")
 
     # ── DQA EXECUTION ────────────────────────────────────────────────────────
-    t0         = time.perf_counter()
-    dqa_counts = cudaq_opt.sample_ansatz(Theta, shots=N_SHOTS)
+    t0 = time.perf_counter()
+    sv = Statevector.from_label('0' * (n_y + n_xi)).evolve(dqa_circuit)
+    dqa_counts = sv.probabilities_dict()
     dqa_time   = time.perf_counter() - t0
 
-    expectation = 0.0
-    for bstr, prob in dqa_counts.items():
-        y_bits      = [int(b) for b in bstr[:n_y]]
-        xi_bits     = [int(b) for b in bstr[n_y:]]
-        true_output = np.array(y_bits) * np.array(xi_bits)
-        op_cost     = float(np.dot(c_y, true_output))
-        shortfall   = max(0, w_d - int(true_output.sum()))
-        expectation += (op_cost + shortfall * c_r) * prob
-    dqa_phi = expectation
-
+    dqa_phi = bno.process_expectation_value_optimizer(w_d, dqa_counts)
     print(f"  DQA  phi(w_d={w_d}) = {dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms)")
 
+    # ── BUILD QAE CIRCUIT ────────────────────────────────────────────────────
+    args_qae = dict(args_dqa)
+    args_qae['m']              = m
+    args_qae['norm']           = norm
+    args_qae['oracle_circuit'] = exp.single_oracle_sin_inconstraint
+    args_qae['gateset']        = False
+
+    qae_optimizer = QAE_Optimizer(args_qae)
+    qae_circuit   = qae_optimizer.compile_qae_circuit()
+    print(f"  QAE circuit: {qae_circuit.num_qubits} qubits, depth={qae_circuit.depth()}")
+
     # ── QAE EXECUTION ────────────────────────────────────────────────────────
-    t0      = time.perf_counter()
-    qae_phi = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
+    t0 = time.perf_counter()
+    if USE_EXACT_SV:
+        b_counts = bno.execute_qae(qae_circuit.copy(), m)
+    else:
+        b_counts = bno.execute_qae(qae_circuit.copy(), m, num_meas=N_SHOTS)
     qae_time = time.perf_counter() - t0
+
+    # Weighted estimate from QPE readout histogram
+    qae_phi = 0.0
+    for key, prob in b_counts.items():
+        b_int    = int(key, 2)
+        amp      = np.sin(b_int * np.pi / 2**m)**2
+        qae_phi += amp * norm * prob
 
     print(f"  QAE  phi(w_d={w_d}) = {qae_phi:.4f}  ({qae_time*1e3:.1f} ms)")
 
@@ -140,11 +146,11 @@ for r in results:
     )
 
 # ── PLOTS ──────────────────────────────────────────────────────────────────────
-n_y_vals  = [r['n_y']           for r in results]
-dqa_phis  = [r['dqa_phi']       for r in results]
-qae_phis  = [r['qae_phi']       for r in results]
-dqa_times = [r['dqa_time']*1e3  for r in results]
-qae_times = [r['qae_time']*1e3  for r in results]
+n_y_vals  = [r['n_y']          for r in results]
+dqa_phis  = [r['dqa_phi']      for r in results]
+qae_phis  = [r['qae_phi']      for r in results]
+dqa_times = [r['dqa_time']*1e3 for r in results]
+qae_times = [r['qae_time']*1e3 for r in results]
 
 fig, axes = plt.subplots(1, 2, figsize=(13, 4))
 
@@ -166,8 +172,9 @@ ax2.set_title('Wall time vs qubit count')
 ax2.legend()
 ax2.grid(True, alpha=0.3)
 
-plt.suptitle('CUDA-Q $n_y$ sweep (nvidia target)', fontsize=12, fontweight='bold')
+backend_label = 'Qiskit exact statevector (CPU)' if USE_EXACT_SV else f'Qiskit AerSimulator ({N_SHOTS} shots)'
+plt.suptitle(f'Qiskit $n_y$ sweep — {backend_label}', fontsize=12, fontweight='bold')
 plt.tight_layout()
-plt.savefig('cuda_q_sweep_results.png', dpi=150)
+plt.savefig('qiskit_sweep_results.png', dpi=150)
 plt.show()
-print("Plot saved to cuda_q_sweep_results.png")
+print("Plot saved to qiskit_sweep_results.png")
