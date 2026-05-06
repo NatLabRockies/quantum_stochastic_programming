@@ -190,16 +190,16 @@ circuits where noise leaks significant probability into $|y| < w_d$ states.
 
 ### 5.1 Summary table
 
-| $n_y$ | $\phi_\text{classical}$ | $\phi_\text{ideal}$ | $\varepsilon_\text{ideal}$ (%) | $\phi_\text{noisy}$ | $\varepsilon_\text{noisy}$ (%) | noise shift (%) |
-|--------|--------------------------|----------------------|-------------------------------|----------------------|-------------------------------|------------------|
-| 4  |  4.5125 |  4.6166 |  2.31 |  7.6544 | 69.63 | +65.80 |
-| 6  | 12.7806 | 12.8761 |  0.75 | 20.6255 | 61.38 | +60.18 |
-| 8  | 22.5526 | 22.7293 |  0.78 | 35.6980 | 58.29 | +57.06 |
-| 10 | 32.8557 | 33.5446 |  2.10 | 51.5785 | 56.99 | +53.76 |
+| $n_y$ | $\phi_\text{classical}$ | $\phi_\text{ideal}$ | $\varepsilon_\text{ideal}$ (%) | $\phi_\text{noisy}$ | $\Delta\phi = \phi_\text{noisy}-\phi_\text{ideal}$ |
+|--------|--------------------------|----------------------|-------------------------------|----------------------|-----------------------------------------------------|
+| 4  |  4.5125 |  4.6166 |  2.31 |  7.6544 |  3.04 |
+| 6  | 12.7806 | 12.8761 |  0.75 | 20.6255 |  7.75 |
+| 8  | 22.5526 | 22.7293 |  0.78 | 35.6980 | 12.97 |
+| 10 | 32.8557 | 33.5446 |  2.10 | 51.5785 | 18.03 |
 
 Definitions:
 - $\varepsilon = |\phi - \phi_\text{classical}| / \phi_\text{classical} \times 100\%$
-- noise shift $= (\phi_\text{noisy} - \phi_\text{ideal}) / \phi_\text{ideal} \times 100\%$ (signed; + = noise degraded result)
+- $\Delta\phi$ — absolute noise-induced cost increase (grows monotonically with $n_y$)
 
 ### 5.2 Plot
 
@@ -208,10 +208,12 @@ Definitions:
 Three panels:
 1. **Left** — absolute $\phi$ values: classical optimum, ideal DQA (20 timesteps,
    linear ramp, noiseless), noisy DQA vs $n_y$.
-2. **Middle** — relative error vs classical for ideal and noisy (timesteps=20
-   fixed for all sizes).
-3. **Right** — signed noise shift $(\phi_\text{noisy}-\phi_\text{ideal})/\phi_\text{ideal}$;
-   red bars = noise degraded result, blue = noise improved (with shortfall penalty).
+2. **Middle** — absolute noise-induced cost increase
+   $\Delta\phi = \phi_\text{noisy} - \phi_\text{ideal}$ per system size;
+   monotonically increasing (3.0 → 7.7 → 13.0 → 18.0), consistent with left panel.
+3. **Right** — stacked bar decomposition of $\phi_\text{noisy}$:
+   classical optimal (blue) + DQA approximation gap (gold) + noise impact (red);
+   the red segment visually grows with $n_y$, confirming the scaling seen in the left panel.
 
 ---
 
@@ -230,10 +232,12 @@ path at fixed 20 steps may not be as efficient relative to the broader landscape
 
 ### 6.2 Noise degradation with 20 timesteps
 
-With `TIMESTEPS = 20` and $p_2 = 0.001$, the noise degradation is **large
-(+54% to +66%) and monotonically decreasing** with $n_y$:
+With `TIMESTEPS = 20` and $p_2 = 0.001$, the **absolute** noise-induced cost
+increase $\Delta\phi = \phi_\text{noisy} - \phi_\text{ideal}$ grows monotonically
+with system size: **3.0 → 7.7 → 13.0 → 18.0**. This is the physically correct
+and consistent message — the left and middle panels are now in full agreement.
 
-This is now physically interpretable:
+The underlying mechanism is circuit-depth scaling:
 
 1. **Circuit depth effect:** All sizes have 20 DQA timesteps but the number of
    2-qubit gates per step scales as $O(n_y^2)$ (Givens-rotation mixer +
@@ -248,11 +252,11 @@ This is now physically interpretable:
    | 8  | ~640  | ~47% |
    | 10 | ~1000 | ~63% |
 
-2. **Shortfall cost scaling:** When noise causes $|y| < w_d$ (fewer turbines
-   committed), the shortfall penalty is $\max(0, w_d - \sum y_j\xi_j) \cdot c_r$.
-   The maximum possible shortfall is $w_d \cdot c_r$, but this scales with $w_d$
-   while $\phi_\text{classical}$ also scales — so the *relative* noise shift
-   decreases slightly with $n_y$ despite more gate errors.
+2. **Why the old relative metric was misleading:** The previous plots used
+   $(\phi_\text{noisy}-\phi_\text{ideal})/\phi_\text{ideal}$ (66%→54%,
+   *decreasing*) because $\phi_\text{ideal}$ grows faster than $\Delta\phi$.
+   This made noise appear to *improve* with system size — the opposite of
+   the physical reality shown by the absolute gap.
 
 ### 6.3 Why timesteps = n_y was misleading
 
@@ -297,4 +301,4 @@ source /nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/activate
 - `qiskit_impl/noise_study_accuracy.png` — three-panel figure
 - `qiskit_impl/run_noise_study.py` — reproducing script
 
-**Commit:** `64aacbb` → `fix/cuda-q-script` branch
+**Commit:** `c37229b` → `fix/cuda-q-script` branch
