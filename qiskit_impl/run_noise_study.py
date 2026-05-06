@@ -38,7 +38,7 @@ print(f'CUDA-Q  target : {cudaq.get_target().name}')
 print(f'GPUs available : {cudaq.num_available_gpus()}')
 
 # ── NOISE MODEL ───────────────────────────────────────────────────────────────
-P1, P2  = 0.001, 0.010
+P1, P2  = 0.0001, 0.001   # realistic near-term: p1=0.01%, p2=0.1% per gate
 N_TRAJ  = 2048
 noise_model = build_depolarizing_noise_model(p1=P1, p2=P2)
 print(f'Noise model    : p1={P1}, p2={P2}, trajectories={N_TRAJ}\n')
