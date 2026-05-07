@@ -175,7 +175,8 @@ comparison table at
 |---|---|---|
 | `nvidia` (default) | Single-GPU state vector via cuStateVec (up to ~30 qubits) | Default choice for most simulations on a single GPU |
 | `nvidia --target-option fp64` | Double-precision single GPU | Higher numerical precision needed (e.g. chemistry, sensitive observables) |
-| `nvidia --target-option mgpu` | Multi-GPU, pools memory across GPUs (>30 qubits) | Circuit exceeds single-GPU memory; requires MPI |
+| `nvidia --target-option fp32` | Single-precision single GPU | Large circuits where fp64 would OOM; ~2× more qubits fit in VRAM |
+| `nvidia --target-option mgpu` | Multi-GPU, pools memory across GPUs (>30 qubits) | Circuit exceeds single-GPU memory; requires MPI; use `fp32` option to maximise qubit count |
 | `nvidia --target-option mqpu` | Multi-QPU, one virtual QPU per GPU, parallel execution | Running many independent circuits in parallel (e.g. parameter sweeps, VQE gradients) |
 | `tensornet` | Tensor network simulator | Shallow or low-entanglement circuits; qubit count exceeds statevector feasibility |
 | `qpp-cpu` | CPU-only fallback (OpenMP) | No GPU available; macOS; small circuits for testing |
@@ -246,32 +247,178 @@ Point to sub-skills for specialized topics
 
 ## Parallelize
 
-CUDA-Q supports two distinct multi-GPU parallelization strategies - pick based
+CUDA-Q supports three distinct multi-GPU parallelization strategies — pick based
 on what you are trying to scale.
 
-| Goal | Strategy | Target option |
+| Goal | Strategy | API / Target |
 |---|---|---|
-| Single circuit too large for one GPU | Pool GPU memory | `nvidia --target-option mgpu` |
-| Many independent circuits at once | Run circuits in parallel | `nvidia --target-option mqpu` |
+| Single circuit too large for one GPU | Pool GPU memory across GPUs | `nvidia` + `option='mgpu,fp32'` |
+| Many independent circuits at once | Run circuits in parallel | `nvidia` + `option='mqpu'` |
+| Many independent shots of one circuit | Split shots across MPI ranks | `mpi4py` + `nvidia` (one rank per GPU) |
 | Large Hamiltonian expectation value | Distribute terms across GPUs | `mqpu` + `execution=cudaq.parallel.thread` |
 
-### Circuit batching with mqpu (`sample_async` / `observe_async`)
+### Strategy 1 — mgpu: statevector sharding (large circuits)
+
+The `mgpu` target has cuStateVec split the statevector across N GPUs via
+GPU-aware MPI. This extends the reachable qubit count:
+
+| GPUs | fp32 limit |
+|------|------------|
+| 1    | ~30 qubits (~32 GB on H100 80 GB) |
+| 2    | ~31 qubits |
+| 4    | ~32 qubits |
+| 8    | ~33–34 qubits (~69 GB/GPU → n=36 fits 8×H100) |
+
+```python
+import cudaq
+cudaq.set_target('nvidia', option='mgpu,fp32')   # fp32 halves memory vs fp64
+
+@cudaq.kernel
+def large_circuit(n: int):
+    q = cudaq.qvector(n)
+    h(q[0])
+    for i in range(n - 1):
+        cx(q[i], q[i + 1])
+    mz(q)
+
+result = cudaq.sample(large_circuit, 34, shots_count=256)
+cudaq.mpi.finalize()
+```
+
+Launch with MPI (one rank per GPU):
+```bash
+mpirun -n 4 python your_script.py
+# or via Slurm:
+srun -N 1 --ntasks=4 --gpus-per-node=4 python your_script.py
+```
+
+**Noise models work on the mgpu target** via trajectory simulation, but each
+shot runs sequentially — so mgpu noisy is slower than mpi4py shot-splitting
+for practical shot counts (see benchmark below).
+
+#### Cray MPICH / HPC systems: GTL preload required
+
+On Cray systems (e.g. NREL Kestrel), cuStateVec's `SVSwapWorkerExecute` passes
+GPU buffer pointers directly to `MPI_Waitall`. Cray MPICH's default SHM
+transport calls `process_vm_readv` on those GPU pointers → `SIGABRT`.
+
+**Fix**: enable GPU-aware MPI via the Cray GTL library. These env vars must be
+set **before Python starts** (cannot be `os.environ` inside the script).
+Use a wrapper script:
+
+```bash
+#!/bin/bash
+# run_mgpu.sh
+export MPICH_GPU_SUPPORT_ENABLED=1
+export LD_LIBRARY_PATH=/nopt/cuda/12.4/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export LD_PRELOAD=/opt/cray/pe/mpich/8.1.28/gtl/lib/libmpi_gtl_cuda.so
+
+# Also point cuStateVec to the correct libmpi.so (Cray names it differently)
+export CUDAQ_MGPU_LIB_MPI=/opt/cray/pe/mpich/8.1.28/ofi/gnu/10.3/lib/libmpi.so
+export CUDAQ_MGPU_COMM_PLUGIN_TYPE=MPICH
+
+exec /path/to/python "$@"
+```
+
+Then launch:
+```bash
+srun -N 2 --ntasks-per-node=4 --gpus-per-node=4 ./run_mgpu.sh your_script.py
+```
+
+Without `LD_PRELOAD`, you will see:
+```
+process_vm_readv: Bad address
+Assertion failed in .../cray_common_memops.c at line 461: 0
+MPICH ERROR [Rank 0] - Abort(1): Internal error
+```
+
+### Strategy 2 — mqpu: parallel circuit execution
 
 The `mqpu` option maps one virtual QPU to each GPU. Dispatch circuits
-asynchronously with `qpu_id` to all GPUs simultaneously.
+asynchronously with `qpu_id` to run them simultaneously.
 
 ```python
 import cudaq
 
-cudaq.set_target("nvidia", option="mqpu")
+cudaq.set_target('nvidia', option='mqpu')
 n_qpus = cudaq.get_platform().num_qpus()
 
 futures = [
-    cudaq.observe_async(kernel, hamiltonian, params, qpu_id=i % n_qpus)
+    cudaq.sample_async(kernel, *params, shots_count=shots // n_qpus,
+                       qpu_id=i % n_qpus)
     for i, params in enumerate(param_sets)
 ]
-results = [f.get().expectation() for f in futures]
+results = [f.get() for f in futures]
 ```
+
+For shot-splitting a **single** circuit across N GPUs:
+```python
+# Submit N_SHOTS/n_qpus shots to each GPU, then merge
+futures = [cudaq.sample_async(kernel, *args,
+               shots_count=N_SHOTS // n_qpus, qpu_id=i)
+           for i in range(n_qpus)]
+combined = sum((f.get() for f in futures), cudaq.SampleResult())
+```
+
+### Strategy 3 — mpi4py shot-splitting (noisy, multi-node)
+
+For **noisy trajectory simulation** with many shots, the fastest strategy is
+to split shots across independent MPI ranks, each owning one GPU. This is
+true parallel execution — each rank runs its fraction of shots independently.
+
+```python
+# Each MPI rank owns one GPU
+import os
+from mpi4py import MPI
+import cudaq
+
+comm = MPI.COMM_WORLD
+rank, size = comm.rank, comm.size
+
+# Bind GPU before any CUDA import
+os.environ['CUDA_VISIBLE_DEVICES'] = os.environ.get('SLURM_LOCALID', str(rank))
+cudaq.set_target('nvidia')   # single GPU per rank
+
+my_shots = N_SHOTS // size   # divide shots evenly
+counts_local = cudaq.sample(kernel, *args, shots_count=my_shots,
+                             noise_model=noise_model)
+
+# Gather and merge on rank 0
+all_counts = comm.gather(counts_local, root=0)
+if rank == 0:
+    merged = sum(all_counts, {})
+```
+
+Launch with one rank per GPU:
+```bash
+srun -N 2 --ntasks-per-node=2 --gpus-per-node=2 python your_script.py
+```
+
+### Strategy comparison: benchmark (DQA, 28–36 qubits, 256 shots, H100 80 GB)
+
+Noisy trajectory simulation (p₁=0.0001, p₂=0.001, TIMESTEPS=20):
+
+| n_y | Qubits | Strategy | GPUs | Time (s) | Speedup |
+|-----|--------|----------|------|----------|---------|
+| 14  | 28     | 1-GPU baseline | 1 | 808 | 1× |
+| 14  | 28     | mqpu (shot-split) | 2 | 283 | 2.85× |
+| 14  | 28     | mpi4py (shot-split) | 4 | **144** | **5.60×** |
+| 14  | 28     | mgpu (statevector) | 8 | 198 | 4.07× |
+| 16  | 32     | 1-GPU | 1 | OOM | — |
+| 16  | 32     | mgpu noiseless | 8 | **12.6** | — |
+| 16  | 32     | mgpu noisy | 8 | >1764 (cancelled) | — |
+| 17  | 34     | mgpu noiseless | 8 | 33.5 | — |
+| 18  | 36     | mgpu noiseless | 8 | 122 | — |
+
+**Key findings**:
+- For noisy simulation at n_y ≤ 14 (single H100 fits): **mpi4py shot-splitting
+  is fastest** — true parallel shot execution scales near-linearly
+- mgpu noisy is slower than mpi4py at the same n_y despite more GPUs:
+  trajectory shots run sequentially, only memory is distributed
+- For noiseless simulation at n_y ≥ 16 (single H100 OOM): **mgpu is the only
+  viable approach** — extends reach from ~30 to ~34 qubits on 8 H100s
+- n_y=16 noisy fits in memory on 8-GPU mgpu (4.3 GB/GPU) but each call
+  takes >30 min — impractical
 
 ### Hamiltonian batching
 
@@ -288,7 +435,7 @@ result = cudaq.observe(kernel, hamiltonian, *args,
                        execution=cudaq.parallel.mpi)
 ```
 
-See the docs above for complete working examples of both patterns.
+See the docs above for complete working examples of all patterns.
 
 ---
 
