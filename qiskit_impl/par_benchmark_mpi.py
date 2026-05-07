@@ -47,7 +47,7 @@ N_SHOTS   = 256
 TIMESTEPS = 20
 P1, P2    = 0.0001, 0.001
 C_R, C_X  = 10.0, [3.]
-NY_LIST   = [14]   # n_y>=16 (>=32 qubits) OOM on H100 (68.7 GB/trajectory)
+NY_LIST   = [16]   # n_y=16: 32 qubits, fp32 = 32 GB/trajectory — fits H100 80 GB
 
 noise_model = build_depolarizing_noise_model(p1=P1, p2=P2)
 
