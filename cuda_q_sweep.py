@@ -4,6 +4,7 @@
 # Runs DQA + QAE for each n_y and plots phi estimates and wall times.
 # No classical validation — CUDA-Q only.
 
+import csv
 import os, sys, math, time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,7 +25,7 @@ from cudaq_impl import CudaqQAEOptimizer
 
 # ── CUDA-Q TARGET ──────────────────────────────────────────────────────────────
 try:
-    cudaq.set_target('nvidia')
+    cudaq.set_target('nvidia', option='mgpu')
     print("[cuda-q] target set to 'nvidia' (cuStateVec).")
 except Exception as e:
     print(f"WARNING: nvidia target unavailable ({e}), falling back to qpp-cpu.")
@@ -32,7 +33,7 @@ except Exception as e:
 
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
 # N_Y_VALUES = [4, 6, 8, 10, 12]   # n_y values to sweep (must be >= 3 with x0=[2])
-N_Y_VALUES = range(4, 18, 2)
+N_Y_VALUES = range(4, 32, 2)
 N_SHOTS    = 2**14
 USE_COBYLA = False
 RUN_DQA    = True   # execute DQA estimation
@@ -58,7 +59,7 @@ for n_y in N_Y_VALUES:
     n_xi      = n_y
     d         = n_y
     c_y       = list(np.linspace(0.1, 1.0, n_y))
-    timesteps = n_y**2
+    timesteps = n_y
     w_d       = int(d - sum(x0))        # wind demand; scales as n_y grows
     norm      = w_d * c_r               # QAE amplitude normalisation
     cost_norm = w_d * c_r / n_y         # DQA cost operator normalisation
@@ -175,3 +176,20 @@ plt.tight_layout()
 plt.savefig('cuda_q_sweep_results.png', dpi=150)
 plt.show()
 print("Plot saved to cuda_q_sweep_results.png")
+
+# ── CSV OUTPUT ─────────────────────────────────────────────────────────────────
+csv_path = 'cuda_q_sweep_results.csv'
+fieldnames = ['n_y', 'w_d', 'dqa_phi', 'dqa_time_ms', 'qae_phi', 'qae_time_ms']
+with open(csv_path, 'w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    for r in results:
+        writer.writerow({
+            'n_y':         r['n_y'],
+            'w_d':         r['w_d'],
+            'dqa_phi':     '' if r['dqa_phi']  is None else f"{r['dqa_phi']:.6f}",
+            'dqa_time_ms': '' if r['dqa_time'] is None else f"{r['dqa_time']*1e3:.3f}",
+            'qae_phi':     '' if r['qae_phi']  is None else f"{r['qae_phi']:.6f}",
+            'qae_time_ms': '' if r['qae_time'] is None else f"{r['qae_time']*1e3:.3f}",
+        })
+print(f"Results saved to {csv_path}")
