@@ -1,0 +1,38 @@
+{
+  "4": {
+    "t1_s": 2.24,
+    "t2_s": 2.57,
+    "speedup": 0.871,
+    "efficiency_pct": 43.6
+  },
+  "6": {
+    "t1_s": 3.89,
+    "t2_s": 5.43,
+    "speedup": 0.716,
+    "efficiency_pct": 35.8
+  },
+  "8": {
+    "t1_s": 6.55,
+    "t2_s": 10.4,
+    "speedup": 0.63,
+    "efficiency_pct": 31.5
+  },
+  "10": {
+    "t1_s": 46.87,
+    "t2_s": 24.86,
+    "speedup": 1.885,
+    "efficiency_pct": 94.3
+  },
+  "12": {
+    "t1_s": 69.21,
+    "t2_s": 36.11,
+    "speedup": 1.917,
+    "efficiency_pct": 95.8
+  },
+  "14": {
+    "t1_s": 808.06,
+    "t2_s": 393.72,
+    "speedup": 2.052,
+    "efficiency_pct": 102.6
+  }
+}

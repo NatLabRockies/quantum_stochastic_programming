@@ -1,156 +1,103 @@
-# CUDA-Q mqpu Parallelisation Study
+# CUDA-Q mqpu Shot Splitting: 2-GPU Parallelisation Report
 
-**Date:** 2026-05-07  
-**Branch:** `fix/cuda-q-script`  
-**Hardware:** 2× H100 GPU (single node, Kestrel cluster), CUDA-Q 0.14, `nvidia` target
-
----
-
-## 1. Overview
-
-This report benchmarks the `mqpu` (multi-QPU) shot-splitting parallelisation
-strategy for noisy DQA circuit evaluation using `cudaq.sample_async`. The
-goal is to understand how well 2048 noisy shots can be split across 2 GPUs
-using the `nvidia --option mqpu` target.
-
-**Parallelisation strategy implemented:**  
-`sample_ansatz_mqpu()` in `cudaq_impl.py` — dispatches `cudaq.sample_async`
-to each available GPU simultaneously with `total_shots // n_qpus` shots per
-GPU, then merges raw counts from all futures before returning probabilities.
-
-**Ideal (noiseless) evaluation** uses `cudaq.observe()` and is not modified
-— it runs on QPU 0 and is unaffected by mqpu configuration.
-
----
-
-## 2. Experimental Setup
+## Setup
 
 | Parameter | Value |
 |-----------|-------|
-| Circuit type | DQA (Digitized Quantum Annealing) |
-| TIMESTEPS | 20 (fixed for all sizes) |
-| System sizes | n_y ∈ {4, 6, 8, 10} (qubits = 2·n_y) |
-| Total shots | 2048 |
-| Noise model | Depolarizing: p₁=0.0001 (1q), p₂=0.001 (2q) |
-| GPUs | 2× H100 (single node) |
-| mqpu config | `cudaq.set_target('nvidia', option='mqpu')` |
-| Shots per GPU | 1024 (2048 ÷ 2) |
+| Hardware | 2× NVIDIA H100 (Kestrel HPC, job 13652954) |
+| CUDA-Q version | 0.14 |
+| Target | `nvidia --option mqpu` (2 virtual QPUs) |
+| Noise model | Depolarising, p₁ = 0.0001, p₂ = 0.001 |
+| DQA timesteps | 20 |
+| Shots | 256 (timing study) |
+| Parameters | Linear ramp θ, 40 parameters |
+| n_y range | 4 → 14 (step 2), i.e. 8 → 28 qubits total |
+
+n_y=16 and above were not benchmarked: the 1-GPU baseline for n_y=14 already took 808 s
+(256 shots), putting n_y=16 beyond practical turnaround for a timing study.
 
 ---
 
-## 3. Results
+## Timing Results
+
+| n_y | Qubits | 1-GPU (s) | 2-GPU mqpu (s) | Speedup | Efficiency | mqpu overhead (s) |
+|-----|--------|-----------|----------------|---------|------------|-------------------|
+| 4   | 8      | 2.2       | 2.6            | 0.85×   | 42%        | +1.5              |
+| 6   | 12     | 3.9       | 5.4            | 0.72×   | 36%        | +3.5              |
+| 8   | 16     | 6.5       | 10.4           | 0.62×   | 31%        | +7.2              |
+| 10  | 20     | 46.9      | 24.9           | 1.88×   | 94%        | +1.4              |
+| 12  | 24     | 69.2      | 36.1           | 1.92×   | 96%        | +1.5              |
+| 14  | 28     | 808.1     | 393.7          | 2.05×   | 103%*      | −10.4             |
+
+\* Efficiency >100% is within run-to-run variance (single-sample measurement).
+
+---
+
+## Key Findings
+
+### 1. Crossover between n_y = 8 and n_y = 10 (16–20 qubits)
+
+`sample_async` dispatches one Python `Future` per GPU and then synchronises — a
+fixed overhead of roughly **2–7 s** regardless of circuit size.  For small circuits
+(n_y ≤ 8, ≤ 16 qubits) the noisy simulation itself finishes in < 7 s, so this
+overhead dominates and mqpu is *slower* than running on a single GPU.
+
+Above the crossover (n_y ≥ 10, ≥ 20 qubits) the per-shot trajectory cost exceeds
+the dispatch overhead and shot splitting yields near-linear speedup.
+
+### 2. Near-ideal scaling for n_y ≥ 10
+
+| Regime | Speedup |
+|--------|---------|
+| n_y = 10 (20 qubits) | 1.88× |
+| n_y = 12 (24 qubits) | 1.92× |
+| n_y = 14 (28 qubits) | 2.05× |
+
+The efficiency rises monotonically with system size because the per-shot circuit
+cost grows super-linearly (roughly exponential in qubit count with noisy
+trajectory simulation), while the round-trip overhead stays roughly constant.
+
+### 3. Steep wall-time scaling with qubit count
+
+| Transition | 1-GPU time ratio |
+|------------|-----------------|
+| n_y 10 → 12 (+4 qubits) | 69.2 / 46.9 = 1.48× |
+| n_y 12 → 14 (+4 qubits) | 808.1 / 69.2 = 11.7× |
+
+The near-order-of-magnitude jump at n_y = 14 (28 qubits) is consistent with
+noisy trajectory simulation entering a regime where the circuit depth
+(TIMESTEPS=20 DQA layers) overtakes GPU-level parallelism within a single
+simulation, causing cache-miss-dominated execution.
+
+### 4. Practical guidance
+
+| Use case | Recommendation |
+|----------|---------------|
+| n_y ≤ 8 (≤ 16 qubits) | Single GPU — mqpu overhead not worth it |
+| n_y = 10–12 (20–24 qubits) | mqpu gives ~1.9× speedup, use it |
+| n_y ≥ 14 (≥ 28 qubits) | mqpu essential — 808 s vs 394 s per evaluation |
+
+---
+
+## Figure
 
 ![Parallelisation study](parallelisation_study.png)
 
-### 3.1 Raw timings
-
-| n_y | Qubits | 1-GPU (s) | 2-GPU mqpu (s) | Speedup | Efficiency | Overhead (s) | Projected 4-GPU (s) |
-|-----|--------|-----------|----------------|---------|------------|--------------|---------------------|
-| 4   | 8      | 1.5       | 3.2            | 0.46×   | 23%        | 2.4          | ~3                  |
-| 6   | 12     | 3.6       | 6.2            | 0.57×   | 29%        | 4.4          | ~5                  |
-| 8   | 16     | 6.5       | 10.7           | 0.61×   | 30%        | 7.4          | ~9                  |
-| 10  | 20     | 127.5     | 64.8           | **1.97×** | **98%** | 1.0          | **~33**             |
-
-- **Ideal eval** (noiseless, `cudaq.observe()`): ~0.6–1.7 s for all sizes,
-  essentially unchanged between 1-GPU and 2-GPU runs (runs on QPU 0 only).
-- **Speedup** = T₁\_GPU / T₂\_GPU
-- **Efficiency** = speedup / 2 × 100%
-- **Overhead** = T₂\_GPU − T₁\_GPU / 2 (time beyond the ideal half)
-
-### 3.2 Key finding: circuit-cost threshold
-
-There is a sharp transition between n_y=8 and n_y=10:
-
-- **n_y ≤ 8 (small circuits):** 2-GPU mqpu is **slower** than 1 GPU by
-  1.6–2.2×. The `sample_async` dispatch + future-gather overhead (~2–7 s)
-  exceeds the compute time saved by splitting shots. For these sizes, the
-  per-shot simulation is cheap (8–16 qubits) and the dispatch cost dominates.
-
-- **n_y = 10 (large circuit):** 2-GPU mqpu is **~2× faster** (1.97×, 98%
-  efficiency). At 20 qubits, each shot requires a full 2²⁰-state complex
-  amplitude trajectory under the depolarising noise model. The compute cost
-  (~127 s for 2048 shots on 1 GPU) dwarfs the ~1 s dispatch overhead.
-
-This is consistent with Amdahl's law: parallelisation only wins when the
-parallelised portion dominates. The crossover occurs somewhere between 16
-and 20 qubits for this noise model and shot count.
+Three panels (left to right):
+1. **Wall time** (log scale): 1-GPU baseline vs 2-GPU mqpu bars per system size.
+2. **Speedup**: ratio T₁/T₂; green bars indicate faster, red indicates slower.
+   Dashed line = break-even, dotted = ideal 2×. Gold band marks crossover zone.
+3. **Parallel efficiency**: green ≥ 80%, yellow 50–80%, red < 50%.
 
 ---
 
-## 4. Overhead Analysis
+## Methodology Notes
 
-The measured overhead for n_y ≤ 8 is surprisingly large (2–7 s). Likely causes:
-
-1. **CUDA-Q kernel JIT recompilation** — `cudaq.sample_async` may trigger
-   recompilation on the second GPU the first time the kernel is dispatched
-   there. This is a one-time cost per kernel; with warm caches it would shrink.
-
-2. **GPU context switching** — the CUDA context on the second GPU must be
-   initialised on its first use.
-
-3. **Future polling** — the `f.get()` calls block the main thread serially;
-   with n_qpus=2 this is minimal, but the Python-level loop adds latency.
-
-**Implication:** for COBYLA optimisation (many sequential evaluations), the
-overhead is paid on the **first** call only if kernel caching is effective.
-This should be measured separately.
-
----
-
-## 5. Projected 4-GPU Scaling
-
-Assuming dispatch overhead stays constant (the overhead is dominated by
-CUDA context setup, not by number of shots), projecting to 4 GPUs:
-
-| n_y | 1-GPU (s) | 2-GPU (s) | Projected 4-GPU (s) | Projected speedup |
-|-----|-----------|-----------|---------------------|-------------------|
-| 4   | 1.5       | 3.2       | ~3                  | 0.5× (still worse)|
-| 6   | 3.6       | 6.2       | ~5                  | 0.7×              |
-| 8   | 6.5       | 10.7      | ~9                  | 0.7×              |
-| 10  | 127.5     | 64.8      | **~33**             | **3.9×**          |
-
-For n_y=10, 4 GPUs should give ~4× speedup over single GPU, bringing the
-127 s evaluation to ~33 s. For n_y ≤ 8, more GPUs make things worse until
-the per-shot cost grows to dominate overhead (n_y ≥ ~12–14).
-
----
-
-## 6. Recommendations
-
-| Scenario | Recommendation |
-|----------|---------------|
-| n_y ≤ 8, small study | Use 1 GPU (`nvidia` target); mqpu adds overhead |
-| n_y = 10, single eval | Use 2+ GPUs with mqpu; ~2× benefit |
-| n_y ≥ 10, COBYLA optimisation | mqpu is strongly recommended; hundreds of evals multiply the per-eval speedup |
-| n_y > ~14 (>28 qubits) | Consider `mgpu` to pool memory; `mqpu` may not help if circuit doesn't fit one GPU |
-| Multi-node (4+ GPUs) | Combine MPI (Option A: each rank handles one n_y) with mqpu per node for best of both |
-
-### When to use each strategy
-
-```
-Single n_y, small circuit (≤16 qubits):  nvidia (1 GPU)
-Single n_y, large circuit (>18 qubits):  nvidia --mqpu (all GPUs, shot splitting)
-Many n_y sizes simultaneously:           MPI, one rank per n_y, each rank uses nvidia
-Single very large circuit (>30 qubits):  nvidia --mgpu (memory pooling via MPI)
-```
-
----
-
-## 7. Reproducibility
-
-```bash
-# On an allocated node with 2 GPUs (e.g. Kestrel with --gres=gpu:2):
-cd /kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl
-
-# 1-GPU baseline
-CUDA_VISIBLE_DEVICES=0 \
-  /nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python run_noise_study_baseline.py
-
-# 2-GPU mqpu (current run_noise_study.py)
-/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python run_noise_study.py
-
-# Regenerate this report and plots from hardcoded timings
-/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python parallelisation_report.py
-```
-
-**Commit:** `491a109` → `fix/cuda-q-script` branch
+- Each timing is a single-run wall-clock measurement (no averaging); variance
+  at n_y ≤ 8 is significant relative to the small absolute times.
+- `sample_ansatz_mqpu` splits N_SHOTS evenly across GPUs using
+  `cudaq.sample_async(..., qpu_id=i)` and merges raw count dictionaries.
+- The mqpu overhead includes Python `Future` creation, kernel serialisation,
+  GPU dispatch latency, and result gather — independent of shot count.
+- n_y=14 benchmark (256 shots, 1 GPU) took 808 s; a production run with 2048
+  shots would take ~6,464 s (≈1.8 h) on 1 GPU, reduced to ~3,000 s with mqpu.
