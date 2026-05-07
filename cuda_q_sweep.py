@@ -26,6 +26,7 @@ from cudaq_impl import CudaqQAEOptimizer
 # ── CUDA-Q TARGET ──────────────────────────────────────────────────────────────
 try:
     cudaq.set_target('nvidia', option='mgpu')
+    cudaq.mpi.initialize()
     print("[cuda-q] target set to 'nvidia' (cuStateVec).")
 except Exception as e:
     print(f"WARNING: nvidia target unavailable ({e}), falling back to qpp-cpu.")
@@ -193,3 +194,4 @@ with open(csv_path, 'w', newline='') as f:
             'qae_time_ms': '' if r['qae_time'] is None else f"{r['qae_time']*1e3:.3f}",
         })
 print(f"Results saved to {csv_path}")
+cudaq.mpi.finalize()
