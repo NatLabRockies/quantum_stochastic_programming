@@ -119,6 +119,95 @@ out = os.path.join(SCRATCH_IMPL, 'parallelisation_study.png')
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f'Plot saved -> {out}')
 
+# ── Figure 2: strategy comparison at n_y=14 (noisy) and n_y=16 (mgpu only) ──
+#
+# n_y=14 noisy (256 shots):
+#   1-GPU baseline  808.1 s
+#   2-GPU mqpu      283.2 s
+#   4-GPU mpi4py    144.3 s   ← fastest (shot-splitting)
+#   8-GPU mgpu      198.4 s   ← statevector sharding, sequential shots
+#
+# n_y=16: single-GPU strategies OOM for noisy (68.7 GB/trajectory > H100 80 GB)
+#   8-GPU mgpu noiseless   12.6 s   ← only viable approach
+
+DATA14 = {
+    '1-GPU\nbaseline':     808.1,
+    '2-GPU\nmqpu':         283.2,
+    '4-GPU\nmpi4py':       144.3,
+    '8-GPU\nmgpu\n(noisy)': 198.4,
+}
+LABELS14 = list(DATA14.keys())
+TIMES14  = list(DATA14.values())
+COLORS14 = ['steelblue', 'tomato', 'seagreen', 'darkorchid']
+
+fig2, axes2 = plt.subplots(1, 2, figsize=(13, 5.5),
+                           gridspec_kw={'width_ratios': [1.5, 1]})
+
+# --- Left panel: n_y=14 all 4 strategies ---
+ax = axes2[0]
+xs = np.arange(len(LABELS14))
+bars = ax.bar(xs, TIMES14, color=COLORS14, alpha=0.85, width=0.55, zorder=3)
+for bar, t in zip(bars, TIMES14):
+    su = 808.1 / t
+    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 15,
+            f'{t:.0f} s\n({su:.2f}×)', ha='center', va='bottom', fontsize=9, fontweight='bold')
+ax.axhline(808.1, color='steelblue', lw=1.0, ls=':', alpha=0.5, label='1-GPU baseline')
+ax.set_xticks(xs)
+ax.set_xticklabels(LABELS14, fontsize=10)
+ax.set_ylabel('Wall time (s)', fontsize=11)
+ax.set_title('$n_y = 14$  (28 qubits)  — NOISY trajectory\n256 shots, p₁=0.0001, p₂=0.001', fontsize=11)
+ax.set_ylim(0, max(TIMES14) * 1.3)
+ax.grid(True, axis='y', alpha=0.4, zorder=0)
+ax.legend(fontsize=8)
+
+# Annotate key finding
+ax.annotate('mpi4py (shot-split)\nfastest: 144.3 s\n5.60× speedup',
+            xy=(2, 144.3), xytext=(2.6, 500),
+            arrowprops=dict(arrowstyle='->', color='seagreen', lw=1.5),
+            fontsize=8.5, color='seagreen', fontweight='bold',
+            ha='center')
+
+# --- Right panel: n_y=16, strategy availability ---
+ax = axes2[1]
+
+strategies_16 = [
+    ('1-GPU\nbaseline',       None, 'OOM\n(68.7 GB/traj)'),
+    ('2-GPU\nmqpu',           None, 'OOM'),
+    ('4-GPU\nmpi4py',         None, 'OOM'),
+    ('8-GPU\nmgpu\n(ideal)',  12.6, None),
+]
+xs16 = np.arange(len(strategies_16))
+colors16 = ['steelblue', 'tomato', 'seagreen', 'darkorchid']
+
+for i, (lbl, t, oom) in enumerate(strategies_16):
+    if t is not None:
+        b = ax.bar(i, t, color=colors16[i], alpha=0.85, width=0.55, zorder=3)
+        ax.text(i, t + 0.4, f'{t:.1f} s', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    else:
+        # Draw a hatched "OOM" bar for visual clarity
+        ax.bar(i, 15, color=colors16[i], alpha=0.25, width=0.55, hatch='//', zorder=3)
+        ax.text(i, 16, oom, ha='center', va='bottom', fontsize=9,
+                color='red', style='italic', fontweight='bold')
+
+ax.set_xticks(xs16)
+ax.set_xticklabels([s[0] for s in strategies_16], fontsize=10)
+ax.set_ylabel('Wall time (s)', fontsize=11)
+ax.set_title('$n_y = 16$  (32 qubits)  — noiseless only\n'
+             '256 shots  |  noisy = OOM on single H100\n'
+             '(68.7 GB/traj > 80 GB)', fontsize=10)
+ax.set_ylim(0, 50)
+ax.grid(True, axis='y', alpha=0.4, zorder=0)
+
+fig2.suptitle(
+    'Strategy comparison: noisy n_y=14 vs mgpu n_y=16  |  '
+    '256 shots  |  H100 80 GB (Kestrel)',
+    fontsize=10, y=1.01)
+
+plt.tight_layout()
+out2 = os.path.join(SCRATCH_IMPL, 'parallelisation_mgpu_comparison.png')
+plt.savefig(out2, dpi=150, bbox_inches='tight')
+print(f'Plot saved -> {out2}')
+
 # Summary table
 print(f"\n{'n_y':>4}  {'qubits':>6}  {'1-GPU(s)':>9}  {'2-GPU(s)':>9}  "
       f"{'4-GPU(s)':>9}  {'Su_2x':>7}  {'Su_4x':>7}  {'Eff_2x':>7}  {'Eff_4x':>7}")
