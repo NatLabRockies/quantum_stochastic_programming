@@ -36,7 +36,7 @@ N_Y_VALUES = range(4, 18, 2)
 N_SHOTS    = 2**14
 USE_COBYLA = False
 RUN_DQA    = True   # execute DQA estimation
-RUN_QAE    = True   # execute QAE estimation
+RUN_QAE    = False   # execute QAE estimation
 # m          = 5                    # QPE readout qubits
 m_qpe    = 5   # QPE readout qubits; estimation error ~ π·norm/2^m_qpe
 

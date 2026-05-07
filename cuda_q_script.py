@@ -134,7 +134,7 @@ print(f"\nActive backend: {BACKEND}")
 
 # %%
 # ── PROBLEM PARAMETERS (shared by all backends) ────────────────────────────────
-n_y  = 6         # wind turbines
+n_y  = 4         # wind turbines
 # n_xi = 4        # xi register qubits (= n_y for uniform pdf)
 n_xi = n_y      # n_xi == n_y pretty much always...
 n_x  = 1        # gas generators
@@ -148,7 +148,7 @@ c_r  = 10.0
 x0 = [2] # First stage value to compute expectation for
 
 # -------- CIRCUIT PARAMETERS -------- #
-N_TIME_STEPS = 100
+# N_TIME_STEPS = 100
 N_SHOTS      = 2**12
 USE_COBYLA   = False  # True: optimise DQA angles via COBYLA; False: use linear ramp
 # ------------------------------------ #
