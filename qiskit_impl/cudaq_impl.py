@@ -674,12 +674,15 @@ class CudaqQAEOptimizer:
         self.dang = dicke_state_angles(n_y, w_d)
         return
 
-    def sample_ansatz(self, thetas: list, shots: int = 4096) -> dict:
+    def sample_ansatz(self, thetas: list, shots: int = 4096,
+                      qpu_id: int = 0) -> dict:
         """Sample the DQA ansatz and return bitstring probabilities.
 
         Args:
-            thetas: Alternating [gamma, beta, gamma, beta, ...] angles.
-            shots:  Number of measurement shots.
+            thetas:  Alternating [gamma, beta, gamma, beta, ...] angles.
+            shots:   Number of measurement shots.
+            qpu_id:  QPU index to target (only relevant for the nvidia mqpu
+                     target; ignored for single-GPU / CPU targets).
 
         Returns:
             Dict {bitstring: probability} over 2*n_y qubits (y+xi register).
@@ -692,7 +695,60 @@ class CudaqQAEOptimizer:
             self.c_r, self.cost_norm,
             self.w_d,
             thetas, n_steps, self.n_y,
-            shots_count=shots)
+            shots_count=shots,
+            qpu_id=qpu_id)
+        total = sum(counts.values())
+        return {k: v / total for k, v in counts.items()}
+
+    def sample_ansatz_async(self, thetas: list, shots: int = 4096,
+                            qpu_id: int = 0) -> 'cudaq.AsyncSampleResult':
+        """Asynchronously sample the DQA ansatz on a specific QPU.
+
+        Dispatches the circuit to ``qpu_id`` via ``cudaq.sample_async`` and
+        returns a future immediately.  Intended for use with the
+        ``nvidia mqpu`` target, where each GPU is exposed as a separate QPU
+        and multiple futures can be in-flight simultaneously.
+
+        Usage (nvidia mqpu)::
+
+            cudaq.set_target('nvidia', option='mqpu')
+            n_qpus = cudaq.get_target().num_qpus()
+            opts = [CudaqQAEOptimizer(...) for _ in range(n_qpus)]
+            futures = [opt.sample_ansatz_async(thetas, shots=N, qpu_id=i)
+                       for i, opt in enumerate(opts)]
+            probs_list = [CudaqQAEOptimizer._resolve_async(f) for f in futures]
+
+        Args:
+            thetas:  Alternating [gamma, beta, ...] DQA angles.
+            shots:   Number of measurement shots.
+            qpu_id:  Index of the QPU / GPU to run on.
+
+        Returns:
+            A ``cudaq.AsyncSampleResult`` future.  Call ``.get()`` to block
+            and retrieve the ``cudaq.SampleResult``.
+        """
+        n_steps = len(thetas) // 2
+        return cudaq.sample_async(
+            dqa_ansatz,
+            self.dang,
+            self.c_y,
+            self.c_r, self.cost_norm,
+            self.w_d,
+            thetas, n_steps, self.n_y,
+            shots_count=shots,
+            qpu_id=qpu_id)
+
+    @staticmethod
+    def _resolve_async(future: 'cudaq.AsyncSampleResult') -> dict:
+        """Block on an async future and return a normalised probability dict.
+
+        Args:
+            future: Value returned by :meth:`sample_ansatz_async`.
+
+        Returns:
+            Dict {bitstring: probability}.
+        """
+        counts = future.get()
         total = sum(counts.values())
         return {k: v / total for k, v in counts.items()}
 
@@ -717,7 +773,7 @@ class CudaqQAEOptimizer:
         return np.array(state)
 
     def estimate_expected_value(self, thetas: list, wind_demand: int,
-                                shots: int = 4096) -> float:
+                                shots: int = 4096, qpu_id: int = 0) -> float:
         """Estimate E[Q(x, xi)] via DQA sampling and classical post-processing.
 
         Mirrors BinaryNestedOptimizer.execute_optimizer +
@@ -727,11 +783,12 @@ class CudaqQAEOptimizer:
             thetas:       DQA angles [gamma_0, beta_0, ...].
             wind_demand:  k — required Hamming weight of y (= d - x).
             shots:        Number of measurement shots.
+            qpu_id:       QPU index to target (nvidia mqpu only).
 
         Returns:
             Float — estimated expected second-stage cost.
         """
-        probs = self.sample_ansatz(thetas, shots=shots)
+        probs = self.sample_ansatz(thetas, shots=shots, qpu_id=qpu_id)
         expectation = 0.0
         for bstr, prob in probs.items():
             # CUDA-Q bitstring convention: qubit 0 = leftmost character.
@@ -742,6 +799,67 @@ class CudaqQAEOptimizer:
             xi_bits = [int(b) for b in bstr[self.n_y:]]
             cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
             expectation += cost * prob
+        return expectation
+
+    def estimate_expected_value_async(self, thetas: list, wind_demand: int,
+                                      shots: int = 4096) -> float:
+        """Drop-in replacement for :meth:`estimate_expected_value` that fans
+        the shot budget out across all available QPUs in parallel.
+
+        Under the ``nvidia mqpu`` target each GPU is a separate QPU.  This
+        method splits ``shots`` evenly across them, fires all sampling jobs
+        simultaneously via ``cudaq.sample_async``, then collects and aggregates
+        the per-QPU probability distributions into a single weighted expected
+        cost — identical in meaning to the single-QPU result but with the
+        wall-time reduced by roughly ``1/n_qpus``.
+
+        Falls back gracefully to a single synchronous ``cudaq.sample`` call
+        when only one QPU is available (i.e. single-GPU or CPU targets).
+
+        Usage::
+
+            cudaq.set_target('nvidia', option='mqpu')
+            opt = CudaqQAEOptimizer(...)
+            phi = opt.estimate_expected_value_async(thetas, w_d, shots=2**14)
+
+        Args:
+            thetas:      DQA angles [gamma_0, beta_0, ...].
+            wind_demand: k — required Hamming weight of y (= d - x).
+            shots:       Total number of measurement shots (split across QPUs).
+
+        Returns:
+            Float — estimated expected second-stage cost.
+        """
+        n_qpus = cudaq.get_target().num_qpus()
+
+        if n_qpus <= 1:
+            # Single QPU / CPU — just use the synchronous path
+            return self.estimate_expected_value(thetas, wind_demand, shots=shots)
+
+        shots_per_qpu = max(1, shots // n_qpus)
+
+        # Fan out: fire all async jobs before blocking on any
+        futures = [
+            self.sample_ansatz_async(thetas, shots=shots_per_qpu, qpu_id=i)
+            for i in range(n_qpus)
+        ]
+
+        # Aggregate: collect each future and accumulate weighted cost sums,
+        # then normalise by total shots to form a single probability estimate
+        total_counts: dict = {}
+        total_shots = 0
+        for future in futures:
+            counts = future.get()          # raw integer counts from this QPU
+            for bstr, cnt in counts.items():
+                total_counts[bstr] = total_counts.get(bstr, 0) + cnt
+            total_shots += sum(counts.values())
+
+        expectation = 0.0
+        for bstr, cnt in total_counts.items():
+            prob    = cnt / total_shots
+            y_bits  = [int(b) for b in bstr[:self.n_y]]
+            xi_bits = [int(b) for b in bstr[self.n_y:]]
+            expectation += self._wind_scenario_cost(y_bits, xi_bits, wind_demand) * prob
         return expectation
 
     def estimate_expected_value_sv(self, thetas: list, wind_demand: int) -> float:

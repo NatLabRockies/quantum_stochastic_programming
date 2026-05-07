@@ -32,8 +32,11 @@ import cudaq
 from cudaq_impl import CudaqQAEOptimizer
 
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
-N_Y_VALUES = range(3, 9)       # n_y values to sweep
-N_SHOTS    = 2**14             # shots for CUDA-Q shot-based backends
+MAX_N_Y = 16
+MAX_CPU_N_Y = 9
+# MAX_SINGLE_GPU_N_Y = 16
+N_Y_VALUES = range(3, MAX_N_Y + 1) # n_y values to sweep
+N_SHOTS    = 2**14                 # shots for CUDA-Q shot-based backends
 
 # Backends to benchmark. Comment out any that are unavailable on your system.
 BACKENDS = [
@@ -56,13 +59,28 @@ x0  = [2]   # first-stage gas commitment; w_d = n_y - sum(x0) scales with n_y
 results = {b: [] for b in BACKENDS}
 
 # ── HELPER: try to activate a CUDA-Q target ───────────────────────────────────
-def try_set_cudaq_target(target: str) -> bool:
-    """Returns True if the target was set successfully."""
+# Maps backend label -> (target_name, option) for cudaq.set_target()
+_CUDAQ_TARGET_MAP = {
+    'qpp-cpu':      ('qpp-cpu',  None),
+    'nvidia':       ('nvidia',   None),
+    'nvidia-mqpu':  ('nvidia',   'mqpu'),
+    'mgpu':         ('nvidia',   'mgpu'),
+}
+
+def try_set_cudaq_target(backend: str) -> bool:
+    """Returns True if the CUDA-Q target was set successfully."""
+    if backend not in _CUDAQ_TARGET_MAP:
+        print(f"  [WARNING] Unknown CUDA-Q backend '{backend}'.")
+        return False
+    target, option = _CUDAQ_TARGET_MAP[backend]
     try:
-        cudaq.set_target(target)
+        if option:
+            cudaq.set_target(target, option=option)
+        else:
+            cudaq.set_target(target)
         return True
     except Exception as e:
-        print(f"  [WARNING] CUDA-Q target '{target}' unavailable: {e}")
+        print(f"  [WARNING] CUDA-Q target '{backend}' unavailable: {e}")
         return False
 
 # ── MAIN SWEEP ─────────────────────────────────────────────────────────────────
@@ -116,7 +134,18 @@ for n_y in N_Y_VALUES:
         'pdf_circuit':            pdf_initialize,
     }
 
+    # CPU backends that should be skipped beyond MAX_CPU_N_Y
+    _CPU_BACKENDS = {'qiskit-cpu', 'qpp-cpu'}
+
     for backend in BACKENDS:
+        if backend in _CPU_BACKENDS and n_y > MAX_CPU_N_Y:
+            print(f"\n  --- backend: {backend} --- [SKIPPED: n_y={n_y} > MAX_CPU_N_Y={MAX_CPU_N_Y}]")
+            results[backend].append({
+                'n_y': n_y, 'n_qubits': 2 * n_y, 'w_d': w_d,
+                'dqa_phi': None, 'dqa_time': None,
+            })
+            continue
+
         print(f"\n  --- backend: {backend} ---")
 
         dqa_phi, dqa_time = None, None
@@ -157,8 +186,13 @@ for n_y in N_Y_VALUES:
                     c_x=c_x, c_y=c_y, c_r=c_r,
                     n_y=n_y, w_d=w_d, cost_norm=cost_norm,
                 )
-                t0       = time.perf_counter()
-                dqa_phi  = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
+                t0 = time.perf_counter()
+                if backend == 'nvidia-mqpu':
+                    dqa_phi = cudaq_opt.estimate_expected_value_async(
+                        Theta, w_d, shots=N_SHOTS)
+                else:
+                    dqa_phi = cudaq_opt.estimate_expected_value(
+                        Theta, w_d, shots=N_SHOTS)
                 dqa_time = time.perf_counter() - t0
                 print(f"    DQA phi={dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms)")
             except Exception as e:
