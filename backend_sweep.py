@@ -44,8 +44,10 @@ BACKENDS = [
     'qiskit-gpu',    # Qiskit AerSimulator, device=GPU (skipped if no CUDA device)
     'qpp-cpu',       # CUDA-Q reference CPU simulator
     'nvidia',        # CUDA-Q cuStateVec single-GPU
-    'nvidia-mqpu',   # CUDA-Q multi-QPU (parallelises over multiple GPUs)
-    # 'mgpu',          # CUDA-Q cuStateVec multi-GPU (one large statevector)
+    # 'nvidia-mqpu',   # CUDA-Q multi-QPU — parallelises *different* circuits across GPUs;
+    #                  # use estimate_expected_value_batch_async() for batch angle sweeps,
+    #                  # NOT for a single fixed-angle forward pass (no speedup there).
+    # 'mgpu',          # CUDA-Q cuStateVec multi-GPU (one large statevector, scales to >30 qubits)
 ]
 
 # Fixed first-stage parameters

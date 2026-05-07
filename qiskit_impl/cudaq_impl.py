@@ -695,8 +695,7 @@ class CudaqQAEOptimizer:
             self.c_r, self.cost_norm,
             self.w_d,
             thetas, n_steps, self.n_y,
-            shots_count=shots,
-            qpu_id=qpu_id)
+            shots_count=shots)
         total = sum(counts.values())
         return {k: v / total for k, v in counts.items()}
 
@@ -801,66 +800,80 @@ class CudaqQAEOptimizer:
             expectation += cost * prob
         return expectation
 
-    def estimate_expected_value_async(self, thetas: list, wind_demand: int,
-                                      shots: int = 4096) -> float:
-        """Drop-in replacement for :meth:`estimate_expected_value` that fans
-        the shot budget out across all available QPUs in parallel.
+    def estimate_expected_value_batch_async(
+            self, thetas_list: list, wind_demand: int,
+            shots: int = 4096) -> list:
+        """Evaluate multiple angle configurations in parallel using nvidia-mqpu.
 
         Under the ``nvidia mqpu`` target each GPU is a separate QPU.  This
-        method splits ``shots`` evenly across them, fires all sampling jobs
-        simultaneously via ``cudaq.sample_async``, then collects and aggregates
-        the per-QPU probability distributions into a single weighted expected
-        cost — identical in meaning to the single-QPU result but with the
-        wall-time reduced by roughly ``1/n_qpus``.
+        method distributes a *batch* of different ``thetas`` configurations
+        across the available QPUs and executes them simultaneously via
+        ``cudaq.sample_async``.  Each GPU independently simulates its assigned
+        circuit; wall time scales as ``ceil(len(thetas_list) / n_qpus)``
+        instead of ``len(thetas_list)``.
 
-        Falls back gracefully to a single synchronous ``cudaq.sample`` call
-        when only one QPU is available (i.e. single-GPU or CPU targets).
+        This is the correct use of ``nvidia-mqpu``: parallelising over
+        *different circuits* (different angle sets), NOT splitting the shots
+        of a single circuit.  Splitting shots of one circuit provides no
+        speedup because statevector simulation — O(2**n) — dominates over
+        shot collection, which is trivially fast by comparison.
 
-        Usage::
+        Falls back gracefully to sequential evaluation when only one QPU is
+        available.
+
+        Usage (optimizer gradient via finite differences)::
 
             cudaq.set_target('nvidia', option='mqpu')
             opt = CudaqQAEOptimizer(...)
-            phi = opt.estimate_expected_value_async(thetas, w_d, shots=2**14)
+            perturbed = [thetas_plus_eps_i for i in range(len(thetas))]
+            phi_batch = opt.estimate_expected_value_batch_async(
+                perturbed, w_d, shots=2**14)
 
         Args:
-            thetas:      DQA angles [gamma_0, beta_0, ...].
+            thetas_list: List of angle vectors, each a ``[gamma_0, beta_0, …]``
+                         list.  Each entry is one independent circuit evaluation.
             wind_demand: k — required Hamming weight of y (= d - x).
-            shots:       Total number of measurement shots (split across QPUs).
+            shots:       Number of measurement shots per configuration.
 
         Returns:
-            Float — estimated expected second-stage cost.
+            List of floats, one estimated expected cost per entry in
+            ``thetas_list``, in the same order.
         """
+        if not thetas_list:
+            return []
+
         n_qpus = cudaq.get_target().num_qpus()
 
         if n_qpus <= 1:
-            # Single QPU / CPU — just use the synchronous path
-            return self.estimate_expected_value(thetas, wind_demand, shots=shots)
+            # Single QPU / CPU — evaluate sequentially
+            return [
+                self.estimate_expected_value(th, wind_demand, shots=shots)
+                for th in thetas_list
+            ]
 
-        shots_per_qpu = max(1, shots // n_qpus)
+        # Round-robin: assign each config to a GPU index
+        qpu_ids = [i % n_qpus for i in range(len(thetas_list))]
 
         # Fan out: fire all async jobs before blocking on any
         futures = [
-            self.sample_ansatz_async(thetas, shots=shots_per_qpu, qpu_id=i)
-            for i in range(n_qpus)
+            self.sample_ansatz_async(th, shots=shots, qpu_id=qid)
+            for th, qid in zip(thetas_list, qpu_ids)
         ]
 
-        # Aggregate: collect each future and accumulate weighted cost sums,
-        # then normalise by total shots to form a single probability estimate
-        total_counts: dict = {}
-        total_shots = 0
+        # Collect and compute expected value for each config
+        results = []
         for future in futures:
-            counts = future.get()          # raw integer counts from this QPU
+            counts = future.get()
+            total = sum(counts.values())
+            expectation = 0.0
             for bstr, cnt in counts.items():
-                total_counts[bstr] = total_counts.get(bstr, 0) + cnt
-            total_shots += sum(counts.values())
-
-        expectation = 0.0
-        for bstr, cnt in total_counts.items():
-            prob    = cnt / total_shots
-            y_bits  = [int(b) for b in bstr[:self.n_y]]
-            xi_bits = [int(b) for b in bstr[self.n_y:]]
-            expectation += self._wind_scenario_cost(y_bits, xi_bits, wind_demand) * prob
-        return expectation
+                prob    = cnt / total
+                y_bits  = [int(b) for b in bstr[:self.n_y]]
+                xi_bits = [int(b) for b in bstr[self.n_y:]]
+                expectation += self._wind_scenario_cost(
+                    y_bits, xi_bits, wind_demand) * prob
+            results.append(expectation)
+        return results
 
     def estimate_expected_value_sv(self, thetas: list, wind_demand: int) -> float:
         """Exact expected second-stage cost via statevector simulation (no shots).
