@@ -1,0 +1,502 @@
+% =============================================================================
+% Poster: GPU-Accelerated Quantum Algorithms for Two-Stage Stochastic Optimisation
+% arXiv:2402.15029  |  github.com/NatLabRockies/quantum_stochastic_programming
+%
+% Compile with:  pdflatex poster.tex   (twice for TikZ overlays)
+% Requires: texlive-science, texlive-latex-extra, texlive-fonts-extra
+%           beamerposter, tcolorbox, pgfplots, tikz
+% =============================================================================
+\documentclass[final]{beamer}
+\usepackage[size=a0,orientation=portrait,scale=1.22]{beamerposter}
+
+% ---- packages ----------------------------------------------------------------
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[most]{tcolorbox}
+\usepackage{array,tabularx}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{microtype}
+
+% ---- colours -----------------------------------------------------------------
+\definecolor{titleblue}  {RGB}{20,  40,  80}
+\definecolor{accentblue} {RGB}{0,   82,  155}
+\definecolor{nrelgreen}  {RGB}{0,   132, 61}
+\definecolor{lightblue}  {RGB}{230, 240, 255}
+\definecolor{lightgreen} {RGB}{225, 245, 230}
+\definecolor{lightyellow}{RGB}{255, 252, 220}
+\definecolor{warnorange} {RGB}{195, 80,  0}
+\definecolor{midgray}    {RGB}{100, 100, 100}
+
+% ---- beamer overrides --------------------------------------------------------
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
+\setbeamertemplate{footline}{}
+\setbeamercolor{background canvas}{bg=white}
+
+% ---- tcolorbox helpers -------------------------------------------------------
+\newcommand{\theoryblock}[2]{%
+  \begin{tcolorbox}[
+      enhanced, arc=6pt, boxrule=2pt,
+      colback=lightblue, colframe=accentblue,
+      colbacktitle=accentblue, coltitle=white,
+      fonttitle=\bfseries\large, title={#1},
+      top=6pt, bottom=6pt, left=9pt, right=9pt,
+      before skip=10pt, after skip=0pt,
+  ]#2\end{tcolorbox}}
+
+\newcommand{\implblock}[2]{%
+  \begin{tcolorbox}[
+      enhanced, arc=6pt, boxrule=2pt,
+      colback=lightgreen, colframe=nrelgreen,
+      colbacktitle=nrelgreen, coltitle=white,
+      fonttitle=\bfseries\large, title={#1},
+      top=6pt, bottom=6pt, left=9pt, right=9pt,
+      before skip=10pt, after skip=0pt,
+  ]#2\end{tcolorbox}}
+
+\newcommand{\keyblock}[2]{%
+  \begin{tcolorbox}[
+      enhanced, arc=6pt, boxrule=2pt,
+      colback=lightyellow, colframe=warnorange,
+      colbacktitle=warnorange, coltitle=white,
+      fonttitle=\bfseries\large, title={#1},
+      top=6pt, bottom=6pt, left=9pt, right=9pt,
+      before skip=10pt, after skip=0pt,
+  ]#2\end{tcolorbox}}
+
+% ---- misc --------------------------------------------------------------------
+\renewcommand{\arraystretch}{1.35}
+\setlength{\tabcolsep}{7pt}
+
+% ==============================================================================
+\begin{document}
+\begin{frame}[t]{}
+
+% ==============================================================================
+% HEADER
+% ==============================================================================
+\begin{tikzpicture}[remember picture, overlay]
+  \fill[titleblue]
+    ([xshift=-3cm,yshift=0.8cm]current page.north west)
+    rectangle
+    ([xshift=3cm,yshift=-7.4cm]current page.north east);
+\end{tikzpicture}
+
+\vspace{-0.3cm}
+\begin{center}
+  {\color{white}\Huge\bfseries
+    GPU-Accelerated Quantum Algorithms for\\[0.3em]
+    Two-Stage Stochastic Optimisation}\\[0.7cm]
+  {\color{white!90!gray}\large
+    C.~Rotello \quad P.~Graf \quad M.~Reynolds \quad E.\,B.~Jones
+    \quad C.\,J.~Winkleblack \quad W.~Jones}\\[0.3cm]
+  {\color{white!80!gray}\normalsize
+    National Renewable Energy Laboratory (NREL) — NatLabRockies}\\[0.4cm]
+  \begin{tikzpicture}
+    \node[fill=white!20!titleblue, rounded corners=4pt, inner xsep=10pt, inner ysep=4pt]
+      {\color{white}\small\textbf{arXiv:}
+        \texttt{\color{yellow!80!white}2402.15029}\ [quant-ph]
+        \quad\textbf{Code:}
+        \texttt{\color{yellow!80!white}github.com/NatLabRockies/quantum\_stochastic\_programming}};
+  \end{tikzpicture}
+\end{center}
+\vspace{0.55cm}
+
+% ==============================================================================
+% BODY — two equal columns
+% ==============================================================================
+\begin{columns}[T,totalwidth=\linewidth]
+
+% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+% LEFT COLUMN — THEORY
+% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+\begin{column}{0.492\linewidth}
+
+% ------------------------------------------------------------------------------
+\theoryblock{1 \quad Two-Stage Stochastic Unit Commitment}{
+
+\textbf{Setting:} Decide gas generator commitment \emph{before} wind is revealed;
+dispatch optimally \emph{after}.
+
+\vspace{0.4cm}
+\begin{center}
+\begin{tikzpicture}[>=Stealth, node distance=2.4cm, font=\small]
+  \node[draw, rounded corners=5pt, fill=accentblue!15,
+        minimum width=3.2cm, minimum height=1.1cm, align=center]
+        (s1) {First stage\\commit $x\!\in\!\{0,1\}^{n_g}$};
+  \node[draw, rounded corners=5pt, fill=orange!25,
+        minimum width=2.8cm, minimum height=1.1cm, align=center,
+        right=1.8cm of s1]
+        (xi) {Wind scenario\\$\xi\sim p(\xi)$};
+  \node[draw, rounded corners=5pt, fill=nrelgreen!15,
+        minimum width=3.2cm, minimum height=1.1cm, align=center,
+        right=1.8cm of xi]
+        (s2) {Second stage\\dispatch $y,\,r$};
+  \draw[->] (s1) -- (xi) node[midway,above,font=\footnotesize]{decide};
+  \draw[->] (xi) -- (s2) node[midway,above,font=\footnotesize]{revealed};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3cm}
+\textbf{Objective} — minimise total expected cost:
+\[
+  \min_{x}\;\Bigl[\,\underbrace{c_g\,x}_{\text{gas cost}}
+  \;+\;
+  \underbrace{\mathbb{E}_{\xi}\!\left[\min_{y,r}\,\bigl\{c_w^\top y + c_r\,r\bigr\}\right]}_{\displaystyle\phi(x)\ \text{(expected value function)}}\Bigr]
+\]
+subject to $\displaystyle\sum_j y_j + r = d - x$,\quad $y_j \le \xi_j$,\quad $y\in\{0,1\}^{n_y}$,\quad $r\ge 0$.
+
+\vspace{0.3cm}
+\textbf{Challenge:} computing $\phi(x)$ requires integrating $Q(x,\xi)$ over all $2^{n_y}$ wind scenarios.
+Classical Monte Carlo requires $O(1/\varepsilon^2)$ samples for error $\varepsilon$.
+}
+
+\vspace{0.2cm}
+
+% ------------------------------------------------------------------------------
+\theoryblock{2 \quad Discrete Quantum Annealing (DQA)}{
+
+DQA encodes \textbf{all scenarios simultaneously} as a quantum superposition and
+anneals the dispatch register to the per-scenario optimum.
+
+\vspace{0.3cm}
+\textbf{Step 1 — Encode probability distribution:}
+\[
+  U_\text{pdf}\,|0\rangle^{n_y} = |\psi_\xi\rangle = \sum_{\xi}\sqrt{p(\xi)}\,|\xi\rangle
+\]
+
+\textbf{Step 2 — Anneal dispatch register ($T$ steps):}
+\[
+  U_\text{DQA} = \prod_{t=1}^{T}\;
+    \underbrace{e^{-i\gamma_t\,C(\xi)}}_{\text{phase separation}}
+    \cdot
+    \underbrace{e^{-i\beta_t\,B}}_{\text{mixer}}
+\]
+where $C(\xi)\!=\!Q(x,y,\xi)$ is the second-stage cost operator (conditioned on $|\xi\rangle$)
+and $B=\sum_j X_j$ is the transverse-field mixer.
+
+\vspace{0.3cm}
+\textbf{After $T$ steps} the joint state approximates:
+\[
+  |\Psi\rangle \;\approx\;
+  \sum_{\xi}\sqrt{p(\xi)}\;|\xi\rangle\,|y^*(\xi)\rangle,
+  \qquad y^*(\xi) = \operatorname*{arg\,min}_{y}\,Q(x,y,\xi)
+\]
+\begin{center}
+\begin{tikzpicture}
+  \node[fill=accentblue!12, rounded corners=5pt, inner xsep=10pt, inner ysep=6pt]{%
+    $n_y$ scenarios solved \textbf{in parallel} by a single $T$-step annealing circuit};
+\end{tikzpicture}
+\end{center}
+}
+
+\vspace{0.2cm}
+
+% ------------------------------------------------------------------------------
+\theoryblock{3 \quad Quantum Amplitude Estimation (QAE)}{
+
+QAE wraps DQA in a phase-estimation circuit to extract $\phi(x)$ with
+$O(1/\varepsilon)$ circuit calls — a \textbf{quadratic speedup} over classical MC.
+
+\vspace{0.45cm}
+
+% Circuit diagram
+\begin{center}
+\begin{tikzpicture}[>=Stealth, font=\small, x=1.15cm, y=0.95cm]
+
+  % ---- QPE / QAE ancilla register ----
+  \node[anchor=east] at (0,4)   {$|0\rangle^m$\;\footnotesize(QAE)};
+  \draw (0.1,4) -- (10.5,4);
+  % Hadamard
+  \draw[fill=accentblue!25] (0.8,3.65) rectangle (1.7,4.35);
+  \node at (1.25,4) {$H^{\!\otimes m}$};
+  % Controlled-U boxes
+  \foreach \cx/\lab in {3.2/{$\mathcal{Q}^{\!1}$}, 5.2/{$\mathcal{Q}^{\!2}$}, 7.2/{$\mathcal{Q}^{\!2^{m-1}}$}} {
+    \draw[fill=accentblue!15] (\cx-0.75,3.65) rectangle (\cx+0.75,4.35);
+    \node at (\cx,4) {\lab};
+    \draw[dashed,->] (\cx,3.65) -- (\cx,2.35);
+  }
+  \node[midgray,font=\footnotesize] at (5.2,4.75) {controlled Grover iterates};
+  % QFT dagger
+  \draw[fill=purple!20] (8.7,3.65) rectangle (9.9,4.35);
+  \node at (9.3,4) {$\mathrm{QFT}^\dagger$};
+  % Measurement
+  \draw (9.9,4) -- (10.5,4);
+  \draw[fill=gray!30] (10.5,3.7) -- (10.5,4.3) -- (11.1,4) -- cycle;
+  \node[right,font=\footnotesize] at (11.1,4) {$\hat\phi(x)$};
+
+  % ---- PDF register ----
+  \node[anchor=east] at (0,2) {$|0\rangle^{n_y}$\;\footnotesize(PDF)};
+  \draw (0.1,2) -- (10.5,2);
+  \draw[fill=nrelgreen!25] (0.8,1.65) rectangle (1.7,2.35);
+  \node at (1.25,2) {$U_{\!\text{pdf}}$};
+
+  % ---- Work / dispatch register ----
+  \node[anchor=east] at (0,0) {$|0\rangle^{n_y}$\;\footnotesize(dispatch)};
+  \draw (0.1,0) -- (10.5,0);
+  \draw[fill=orange!20] (2.2,-0.4) rectangle (8.0,2.4);
+  \node at (5.1,1.0) {DQA\;($T$ steps,\;$2n_y$ qubits)};
+
+  % H on dispatch
+  \draw[fill=orange!30] (1.0,-0.4) rectangle (1.9,0.4);
+  \node at (1.45,0) {$H^{\!\otimes n_y}$};
+
+  % Dots between controlled-U boxes
+  \node at (6.2,4) {\Large$\cdots$};
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.4cm}
+$\mathcal{Q} = -U_\text{DQA}\,S_0\,U_\text{DQA}^\dagger\,S_\chi$ is the Grover iterate;
+measuring the QPE register gives amplitude $\sin^2\!\theta \propto \phi(x)$.
+
+\vspace{0.3cm}
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  \textbf{Method} & \textbf{Evaluations} & \textbf{Precision} \\
+  \midrule
+  Classical Monte Carlo & $O(1/\varepsilon^2)$ & $\varepsilon$ \\
+  \textbf{Quantum DQA + QAE} & $\boldsymbol{O(1/\varepsilon)}$ & $\varepsilon$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.2cm}
+\textbf{Qubit count:} $n = m + 2n_y$\;qubits.
+At $n_y=14$ (Unit Commitment with 14 turbines): $n\!=\!28$ data qubits.
+}
+
+\end{column}
+
+% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+% RIGHT COLUMN — IMPLEMENTATION
+% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+\begin{column}{0.492\linewidth}
+
+% ------------------------------------------------------------------------------
+\implblock{4 \quad GPU Simulation Stack on NREL Kestrel}{
+
+\begin{center}
+\begin{tabular}{llp{8cm}}
+  \toprule
+  \textbf{Package} & \textbf{Version} & \textbf{Role} \\
+  \midrule
+  CUDA-Q         & 0.14.0  & Quantum kernel JIT-compilation (NVRTC) \\
+  cuQuantum      & 26.3.0  & cuStateVec GPU statevector backend \\
+  qiskit-aer-gpu & 0.15.1  & GPU-accelerated Qiskit Aer simulator \\
+  mpi4py         & 4.1.1   & Multi-node shot distribution \\
+  Cray MPICH     & 8.1.28  & GPU-aware MPI (GTL for mgpu) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.2cm}
+\textbf{Hardware:} NREL Kestrel HPC \textemdash{} up to 8 $\times$ NVIDIA H100 SXM5 80\,GB (sm\_90)
+across 2 nodes; Cray Slingshot interconnect.
+}
+
+\vspace{0.2cm}
+
+% ------------------------------------------------------------------------------
+\implblock{5 \quad Three Parallelisation Strategies}{
+
+Noisy trajectory simulation requires \textbf{one full statevector per shot}
+($2^n \times 16$\,bytes on-device). Three strategies attack this bottleneck:
+
+\vspace{0.35cm}
+\begin{center}
+\begin{tabular}{p{2.8cm}p{7.2cm}p{5.5cm}}
+  \toprule
+  \textbf{Strategy} & \textbf{Mechanism} & \textbf{When to use} \\
+  \midrule
+  \textbf{mqpu}\newline(CUDA-Q) &
+    Each GPU holds a full statevector copy; shots split via
+    \texttt{cudaq.sample\_async(qpu\_id=i)} &
+    $n_y\!\ge\!10$, single node; no MPI boilerplate \\[4pt]
+  \textbf{mpi4py}\newline shot-split &
+    One MPI rank per GPU (\texttt{CUDA\_VISIBLE\_DEVICES=SLURM\_LOCALID});
+    ranks gather shot-count dicts &
+    $n_y\!\ge\!10$, multi-node; near-ideal scaling \\[4pt]
+  \textbf{mgpu}\newline(cuStateVec) &
+    Statevector \emph{sharded} across GPUs via cuStateVec; enables
+    $n\!>\!33$\,qubits; requires Cray GTL (\texttt{libmpi\_gtl\_cuda.so}) &
+    Noiseless simulation; $n\!>\!33$\,q \\
+  \bottomrule
+\end{tabular}
+\end{center}
+}
+
+\vspace{0.2cm}
+
+% ------------------------------------------------------------------------------
+\implblock{6 \quad Benchmark Results}{
+
+\textbf{Noisy simulation:} Depolarising noise ($p_1\!=\!10^{-4}$, $p_2\!=\!10^{-3}$),
+256 shots, 20 DQA steps, NREL Kestrel H100s.
+
+\vspace{0.3cm}
+\begin{center}
+\begin{tikzpicture}
+\begin{axis}[
+    ybar, bar width=22pt,
+    width=0.93\linewidth, height=15.5cm,
+    symbolic x coords={$n_y\!=\!10$\\(20 q), $n_y\!=\!12$\\(24 q), $n_y\!=\!14$\\(28 q)},
+    xtick=data,
+    xticklabel style={font=\normalsize, align=center},
+    x tick label as interval=false,
+    ymode=log, log basis y=10,
+    ylabel={Wall time (seconds)}, ylabel style={font=\normalsize},
+    ymin=7, ymax=2500,
+    ytick={10, 20, 50, 100, 200, 500, 1000},
+    yticklabels={10, 20, 50, 100, 200, 500, 1000},
+    yticklabel style={font=\normalsize},
+    grid=major, grid style={gray!25, dashed},
+    legend style={
+        at={(0.97,0.97)}, anchor=north east,
+        font=\normalsize, draw=gray!50,
+        fill=white, fill opacity=0.9, text opacity=1,
+        row sep=2pt,
+    },
+    enlarge x limits=0.22,
+    clip=false,
+    title={\normalsize Wall time — noisy DQA+QAE evaluation (log scale)},
+    title style={font=\bfseries\normalsize},
+    nodes near coords style={font=\footnotesize, /pgf/number format/fixed},
+]
+  % 1-GPU baseline
+  \addplot[fill=gray!55, draw=gray!70] coordinates {
+    ($n_y\!=\!10$\\(20 q), 46.9)
+    ($n_y\!=\!12$\\(24 q), 69.2)
+    ($n_y\!=\!14$\\(28 q), 808.1)
+  };
+  % 2-GPU mqpu
+  \addplot[fill=accentblue!65, draw=accentblue!80] coordinates {
+    ($n_y\!=\!10$\\(20 q), 24.9)
+    ($n_y\!=\!12$\\(24 q), 36.1)
+    ($n_y\!=\!14$\\(28 q), 283.2)
+  };
+  % 4-GPU mpi4py
+  \addplot[fill=nrelgreen!75, draw=nrelgreen!90] coordinates {
+    ($n_y\!=\!10$\\(20 q), 12.0)
+    ($n_y\!=\!12$\\(24 q), 19.3)
+    ($n_y\!=\!14$\\(28 q), 144.3)
+  };
+  \legend{1 GPU (baseline), 2-GPU mqpu, 4-GPU mpi4py}
+\end{axis}
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.1cm}
+\begin{center}
+\begin{tabular}{ccccccc}
+  \toprule
+  $n_y$ & Qubits & 1-GPU (s) & 2-GPU mqpu (s) & 4-GPU mpi4py (s)
+        & Su$_{2\times}$ & Su$_{4\times}$ \\
+  \midrule
+  10 & 20 & \phantom{0}46.9 & \phantom{0}24.9 & \phantom{0}12.0
+     & 1.9$\times$ & 3.9$\times$ \\
+  12 & 24 & \phantom{0}69.2 & \phantom{0}36.1 & \phantom{0}19.3
+     & 1.9$\times$ & 3.6$\times$ \\
+  14 & 28 & 808\phantom{.0} & 283\phantom{.0} & 144\phantom{.0}
+     & 2.9$\times$ & 5.6$\times^{\dagger}$ \\
+  \bottomrule
+  \multicolumn{7}{l}{\footnotesize$^\dagger$ Cold-start JIT artefact;
+    warm comparison $\approx$ ideal 2$\times$/4$\times$.}
+\end{tabular}
+\end{center}
+
+\vspace{0.4cm}
+\textbf{Noiseless mgpu} (statevector sharding, 8$\,\times\,$H100, Cray GTL):
+
+\begin{center}
+\begin{tabular}{cccc}
+  \toprule
+  $n_y$ & Qubits & Memory / GPU (fp32) & Wall time (s) \\
+  \midrule
+  16 & 32 & \phantom{0}4.3\,GB & \phantom{00}12.6 \\
+  17 & 34 & \phantom{0}17.2\,GB & \phantom{00}33.5 \\
+  18 & 36 & 68.7\,GB            & 122\phantom{.0} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.2cm}
+\textbf{Memory ceiling (noisy):} fp32 statevector = $2^n \!\times\! 8$\,bytes.
+Single H100 holds $\le\!33$\,q ($\approx$64\,GB). mgpu extends to 36\,q with 8 GPUs.
+}
+
+\vspace{0.2cm}
+
+% ------------------------------------------------------------------------------
+\keyblock{Key Findings}{
+\begin{itemize}\setlength{\itemsep}{5pt}
+  \item \textbf{mpi4py shot-splitting} achieves near-ideal $4\times$ speedup for noisy
+    simulation at $n_y\!=\!10$--$12$ ($>$90\,\% parallel efficiency).
+  \item \textbf{mqpu crossover} at $n_y\!=\!10$ (20\,qubits): at smaller circuits,
+    async dispatch overhead exceeds compute savings; above, near-ideal $2\times$.
+  \item \textbf{Practical ceiling} for noisy simulation: $n_y\!=\!14$ (28\,q) on H100;
+    $n_y\!=\!16$ (32\,q, 68\,GB) causes OOM in trajectory mode.
+  \item \textbf{mgpu extends noiseless simulation} to 36\,qubits ($n_y\!=\!18$)
+    across 8 GPUs, but does not support noise models.
+  \item \textbf{Quantum speedup:} $O(1/\varepsilon)$ QAE vs $O(1/\varepsilon^2)$
+    classical Monte Carlo --- demonstrated end-to-end on NREL Kestrel H100s.
+\end{itemize}
+}
+
+\end{column}
+\end{columns}
+
+% ==============================================================================
+% FOOTER
+% ==============================================================================
+\vspace{0.5cm}
+\begin{tikzpicture}[remember picture, overlay]
+  \fill[titleblue]
+    ([xshift=-3cm,yshift=0.5cm]current page.south west)
+    rectangle
+    ([xshift=3cm,yshift=3.6cm]current page.south east);
+\end{tikzpicture}
+
+\begin{columns}[T,totalwidth=\linewidth]
+  \begin{column}{0.70\linewidth}
+    \vspace{0.15cm}
+    {\color{white}\small\raggedright
+      \textbf{Reference:}\;
+      C.\,Rotello, P.\,Graf, M.\,Reynolds, E.\,B.\,Jones,
+      C.\,J.\,Winkleblack, W.\,Jones.
+      \textit{Calculating the expected value function of a two-stage stochastic
+      optimization program with a quantum algorithm.}
+      arXiv:2402.15029 [quant-ph], 2024.
+      \texttt{https://doi.org/10.48550/arXiv.2402.15029}
+
+      \vspace{0.2cm}
+      \textbf{Code:}\;
+      \texttt{https://github.com/NatLabRockies/quantum\_stochastic\_programming}
+      \quad (branch \texttt{fix/cuda-q-script})
+
+      \vspace{0.2cm}
+      \textbf{GPU implementation and benchmarks:}\;
+      N.\,Sawant, NREL Kestrel HPC.\;
+      CUDA-Q\,0.14.0\,/\,cuQuantum\,26.3.0\,/\,NVIDIA H100 SXM5 80\,GB.
+    }
+  \end{column}
+  \begin{column}{0.28\linewidth}
+    \vspace{0.1cm}
+    {\color{white!70!titleblue}\small\raggedright
+      \texttt{module load qiskit/aer-gpu}\\[2pt]
+      NREL Kestrel \textemdash{} \texttt{qiskit/aer-gpu} module\\
+      includes CUDA-Q, cuQuantum,\\
+      Qiskit Aer GPU, mpi4py}
+  \end{column}
+\end{columns}
+
+\end{frame}
+\end{document}
