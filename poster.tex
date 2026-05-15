@@ -303,19 +303,29 @@ Noisy mgpu fits memory (4.3\,GB/GPU) but $>\!1764$\,s (cancelled).
 \vspace{0.15cm}
 
 % ------------------------------------------------------------------------------
-\keyblock{Key Findings}{
-\setlength{\itemsep}{5pt}
+\keyblock{Key Theoretical Findings}{
+\setlength{\itemsep}{6pt}
 \begin{itemize}
-  \item \textbf{mpi4py shot-splitting} achieves $>\!90\,\%$ parallel efficiency
-    at $n_y\!=\!10$--$12$ (20--24\,q); recommended for noisy simulation.
-  \item \textbf{mqpu crossover} at $n_y\!\approx\!10$: async dispatch overhead
-    dominates small circuits; near-$2\times$ above crossover.
-  \item \textbf{Noisy memory ceiling:} $n_y\!=\!14$ (28\,q, 4.3\,GB/traj)
-    is the practical per-H100 limit in trajectory mode.
-  \item \textbf{mgpu extends noiseless reach} to 36\,qubits ($n_y\!=\!18$,
-    8$\times$H100, 122\,s), but does not support noise models.
-  \item \textbf{Quantum speedup:} $O(1/\varepsilon)$ QAE vs $O(1/\varepsilon^2)$
-    Monte Carlo, demonstrated end-to-end on Kestrel H100s.
+  \item \textbf{Polynomial speedup:} QAE estimates $\phi(x)$ with error
+    $O(1/\varepsilon)$ circuit calls vs $O(1/\varepsilon^2)$ for classical Monte
+    Carlo --- a provable polynomial advantage assuming efficient distribution
+    preparation.
+  \item \textbf{Parallel scenario optimisation:} Encoding $p(\xi)$ as a quantum
+    wavefunction and using it as control logic for the phase-separation unitary
+    $H_Q$ lets DQA converge to the optimal dispatch $y_\omega^*$ for
+    \emph{all} $2^{n_\xi}$ scenarios simultaneously in a single quantum circuit.
+  \item \textbf{Controllable error:} Two independent error sources can each
+    be made arbitrarily small --- DQA residual $\delta\!\sim\!O(1/T^2)$ via
+    annealing time $T$, and QPE error $O(\pi/M)$ via register size $M$.
+    Setting $T\!=\!n_y^2$ suffices empirically.
+  \item \textbf{Complexity separation:} Runtime scales as $O(2^{n_y})$ in
+    annealing time (second-stage turbines) but is \emph{independent} of the
+    number of scenarios $|\Omega|\!=\!2^{n_\xi}$, breaking the classical
+    $O(|\Omega|)$ bottleneck.
+  \item \textbf{Power grid demonstration:} Algorithm validated on a stochastic
+    unit commitment problem (gas commitment under wind uncertainty), confirming
+    that DQA+QAE recovers the classical expected cost with controllable
+    accuracy.
 \end{itemize}
 }
 
