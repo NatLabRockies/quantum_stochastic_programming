@@ -2,6 +2,31 @@
 created by csagal on 7/2/2024
 Script for running quantum optimization algorithms
 '''
+# =============================================================================
+# GPU PORTING STRATEGY  (branch: gpuOptim)
+# =============================================================================
+# This file is PURE CIRCUIT CONSTRUCTION -- it builds the canonical QAE circuit
+# but never calls a simulator itself.
+#
+# GPU impact here is INDIRECT: every QuantumCircuit assembled in
+# QAE_Optimizer.implemented_qae() is ultimately executed by the caller
+# (binary_optimizer.BinaryNestedOptimizer.execute_qae).  To gain GPU speedup:
+#
+#   TIER 1 (caller change, zero changes needed here):
+#     The caller must swap its Aer.get_backend('statevector_simulator') for
+#       AerSimulator(method='statevector', device='GPU')
+#     See binary_optimizer.py for the exact GPU-SWAP markers.
+#
+#   TIER 2 (transpile once, here or in caller):
+#     The QAE circuit built by implemented_qae() uses the same topology for
+#     every amplitude-estimation shot -- transpile it ONCE and cache it.
+#     GPU transpilation via Qiskit's target='GPU' mode further reduces overhead.
+#
+#   TIER 3 (cuStateVec):
+#     For >20 qubits the statevector grows exponentially.  Use
+#       AerSimulator(method='statevector', device='GPU', cuStateVec_enable=True)
+#     to offload the state-vector contraction to NVIDIA cuStateVec (H100 ready).
+# =============================================================================
 # Package Import
 from typing import List, Dict, Tuple
 
@@ -10,7 +35,7 @@ from qiskit import QuantumCircuit
 from qiskit_aer import Aer
 from qiskit.compiler import transpile
 from qiskit.circuit.library.standard_gates import ZGate
-from qiskit.circuit.library import QFT
+from qiskit.circuit.library import QFTGate
 
 # File Import
 from dist_prep import *
@@ -49,6 +74,20 @@ args['oracle_circuit']
 '''
 
 class QAE_Optimizer:
+    """
+    Assembles and runs the canonical Quantum Amplitude Estimation (QAE) algorithm
+    for the two-stage stochastic optimization problem.
+
+    The QAE_Optimizer takes a user-supplied dictionary `args` that provides:
+      - Problem dimensions  (n_y, m, y_reg, pdf_reg)
+      - Circuit factories    (cost_operator_circuit, mixer_operator_circuit,
+                              initial_state_circuit, pdf_circuit, oracle_circuit)
+      - Annealing angles    (Theta list, w_d wind demand, norm)
+      - Misc flags          (uniform PDF, gateset for transpilation)
+
+    The main output is `compile_qae_circuit()` which returns the full QAE
+    QuantumCircuit ready to run on a simulator or hardware.
+    """
 
     def __init__(self, args:dict):
 
@@ -71,7 +110,21 @@ class QAE_Optimizer:
 
     def compile_qae_circuit(self) -> QuantumCircuit:
         '''
-        Generates and returns qiskit QuantumCircuit object to run QAE algorithm on user-specified problem
+        Generates and returns a Qiskit QuantumCircuit object to run the QAE algorithm
+        on the user-specified problem.
+
+        Assemble the full QAE circuit for the user-specified problem.
+
+        Steps:
+          1. Build the DQA ansatz circuit  op  = alternating_operator_ansatz(args)
+             (Dicke-state init → alternating cost + mixer layers at angles Theta)
+          2. Build the oracle circuit  oracle  (encodes cost as ancilla amplitude)
+          3. Combine into full QAE via implemented_qae()
+
+        Returns a QuantumCircuit with layout:
+          [0..m-1]       : m QPE estimate qubits (readout after IQFT)
+          [m..m+2n_y-1]  : system qubits (y-register + pdf-register)
+          [m+2n_y]       : ancilla qubit
         '''
         op = alternating_operator_ansatz(self.args)
         op_inv = op.inverse()
@@ -83,9 +136,42 @@ class QAE_Optimizer:
         return qae_circuit
 
     def implemented_qae(self, op, oracle, op_inv, oracle_inv) -> QuantumCircuit:
-        '''
-        Takes QuantumCircuit objects and returns QuantumCircuit object representing the QAE algorithm
-        '''
+        """
+        Takes QuantumCircuit objects and returns a QuantumCircuit object representing the QAE algorithm.
+
+        Build the canonical QAE circuit (Brassard et al. 2002, Fig. 2 of paper).
+
+        Qubit layout:
+          [0..m-1]      : m estimate (QPE) qubits
+          [m..m+2n_y-1] : system qubits
+          [m+2n_y]      : ancilla qubit  (ancilla index = m + 2*n_y)
+
+        Circuit in order:
+          1. H^{\otimes m} on estimate qubits
+             → creates superposition so QPE can probe all powers of Q simultaneously
+
+          2. op  on system qubits  (DQA circuit — prepares optimal superposition)
+             oracle  on system + ancilla  (encodes cost as Pr[ancilla=|1⟩])
+
+          3. For each estimate qubit i (0..m-1), repeat 2^i times:
+               a) S_ψ0: X(ancilla) · CZ(estimate_i, ancilla) · X(ancilla)
+                  → phase-flip on ancilla=|0⟩ states (marks the "bad" subspace)
+               b) A^{-1}: oracle_inv.control(1) then op_inv.control(1)
+                  → uncompute A, controlled on estimate qubit i
+               c) S_0: X all system+ancilla qubits, controlled-MCZ, X back
+                  → phase-flip on |0...0⟩ (the zero-reflection for Grover)
+               d) A: op.control(1) then oracle.control(1)
+                  → reapply A, controlled on estimate qubit i
+             Together (a)-(d) implement one application of the Grover operator Q,
+             controlled on estimate qubit i.  The 2^i repetitions encode the
+             eigenphase 2*arcsin(sqrt(a)) as a binary fraction in the QPE register.
+
+          4. IQFT on estimate qubits  →  phase → integer b
+
+        Post-processing (done outside this function):
+          a_tilde   = sin^2(b * pi / 2^m)
+          phi_tilde = a_tilde * norm
+        """
         ancilla = self.m + 2*self.n_y 
         qc = QuantumCircuit(self.m + 2*self.n_y  + 1) 
         for i in range(self.m):
@@ -112,7 +198,7 @@ class QAE_Optimizer:
                 # A
                 qc.append(op.control(1), [i]+list(range(self.m, ancilla)))
                 qc.append(oracle.control(1), [i]+list(range(self.m, ancilla+1)))
-        qc.append(QFT(self.m, inverse=True), list(range(self.m)))
+        qc.append(QFTGate(self.m).inverse(), list(range(self.m)))
 
         if self.gateset:
             qc = transpile(qc, basis_gates=self.gateset)

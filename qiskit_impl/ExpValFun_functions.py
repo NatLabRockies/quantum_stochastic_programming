@@ -2,6 +2,36 @@
 created by csagal on 9/6/2024
 Script for running quantum optimization algorithms
 '''
+# =============================================================================
+# GPU PORTING STRATEGY  (branch: gpuOptim)
+# =============================================================================
+# This file is PURE CIRCUIT CONSTRUCTION -- none of the functions here call a
+# simulator directly.  All quantum circuits produced are passed to callers in
+# binary_optimizer.py / qae.py, where the actual execution happens.
+#
+# GPU impact here is INDIRECT:
+#
+#   TIER 1 (no changes in this file):
+#     Ensure the top-level executor (binary_optimizer.execute_optimizer /
+#     execute_qae) uses the GPU backend:
+#       AerSimulator(method='statevector', device='GPU')
+#
+#   TIER 2 (circuit re-use):
+#     alternating_operator_ansatz() is called inside the DQA time-step loop,
+#     building a fresh QuantumCircuit every iteration.  Refactor to build the
+#     circuit ONCE with ParameterVector angles, then bind parameters per step.
+#     This eliminates redundant Python-level circuit construction overhead and
+#     is especially important when the GPU kernel launch latency dominates.
+#
+#   TIER 2b (mixer / cost pre-compilation):
+#     demand_constraint_preserving_mixer() and stochastic_cost_operator() also
+#     get called inside inner loops.  Apply the same pre-compile + bind pattern
+#     to amortise the circuit build cost over all DQA steps.
+#
+#   TIER 3 (cuStateVec, no changes here):
+#     No changes needed in this file.  Enable cuStateVec in the Aer backend
+#     configuration in the executor file.
+# =============================================================================
 # Package Import
 import numpy as np
 from typing import List, Dict, Tuple
@@ -21,8 +51,21 @@ args should be the same as the args in qae.py, but should also contain the requi
 
 # Functions from binary optimizer for testing
 def demand_constraint_preserving_mixer(amplitude:float, args:dict) -> QuantumCircuit:
-    ''' mixing operator which preserves the demand constraint
-    '''
+    """
+    Mixing operator which preserves the demand constraint.
+
+    XY mixer  U_d(β)  that preserves the Hamming weight (= wind demand constraint).
+
+    For every pair (j, k) of wind qubits, applies SWAP^β:
+      SWAP^β = exp(-i βπ/2 · (XX+YY)/2)
+
+    The XX+YY Hamiltonian moves excitations between qubits without changing their
+    total count, so sum(y) = wind_demand is preserved throughout DQA evolution.
+    This makes the Dicke-state initial condition self-consistent: the entire
+    trajectory stays within the feasible subspace.
+
+    Eq. (39) of the paper.  amplitude = β (decreases from 1 to 0 during annealing).
+    """
     qc = QuantumCircuit(len(args['y_reg']), name=r'$U_d({})$'.format(np.round(amplitude, 3)))
     layers = 1
     for layer in range(layers):
@@ -32,9 +75,29 @@ def demand_constraint_preserving_mixer(amplitude:float, args:dict) -> QuantumCir
     return qc
 
 def cost_operator(amplitude:float, args:dict) -> QuantumCircuit:
-    ''' our cost operator
-        constraint_amplitude will be recourse for the constraint-preserving mixer, and a penalty weight otherwise
-    '''
+    """
+    Our cost operator.
+    `constraint_amplitude` will be recourse for the constraint-preserving mixer,
+    and a penalty weight otherwise.
+
+    Phase (cost) operator  U_q(γ)  encoding second-stage costs as quantum phases.
+
+    For each wind turbine j, applies two CP (controlled-phase) gates:
+
+      CP(γ · c_y[j] / cost_norm)   on [pdf_reg[j], y_reg[j]]
+        → phase e^{iγc_y/norm} when BOTH y[j]=|1⟩ AND ξ[j]=|1⟩
+          (turbine ON  +  wind available  →  operational cost c_y[j])
+
+      X(pdf_reg[j])  then  CP(γ · c_r / cost_norm)  then  X(pdf_reg[j])
+        → phase e^{iγc_r/norm} when y[j]=|1⟩ AND ξ[j]=|0⟩
+          (turbine ON  +  no wind  →  recourse cost c_r)
+
+    The CP gate acts as  exp(iθ |1⟩⟨1| ⊗ |1⟩⟨1|),  i.e., it encodes the
+    diagonal cost Hamiltonian H_C as a phase on computational basis states.
+
+    Corresponds to U_q in Eq. (42) of the paper.
+    `amplitude` = γ annealing parameter;  `args['cost_norm']` prevents phase wrapping.
+    """
     qc = QuantumCircuit(args['n_y']*2, name=r'$U_q({})$'.format(np.round(amplitude, 3)))
     for q_w,cost in enumerate(args['c_y']):
         q_pdf = args['pdf_reg'][q_w]
@@ -55,8 +118,27 @@ def cost_scenario_operator(amplitude:float, args:dict) -> QuantumCircuit:
     return qc
 
 def single_oracle_sin_inconstraint(args:dict, inverse=False) -> QuantumCircuit:
-    ''' compute the oracle ont an ancilla qubit - assuming our states are in-constraint, using the sin approx
-    '''
+    """
+    Compute the oracle onto an ancilla qubit — assuming our states are in-constraint,
+    using the sin approximation.
+
+    Practical oracle  F_sin  (Eq. 45 of paper) using the sin-approximation.
+
+    For each turbine j, applies two CCRY (doubly-controlled-RY) rotations on the ancilla:
+
+      CCRY(π·c_y[j]/norm)  on [y_reg[j], pdf_reg[j]] → ancilla
+        → fires when turbine j is ON (y[j]=|1⟩) AND wind is available (ξ[j]=|1⟩)
+        → rotates ancilla by  π·c_y/norm  (encodes operational cost as amplitude)
+
+      X(pdf_reg[j])  →  CCRY(π·c_r/norm)  →  X(pdf_reg[j])
+        → fires when y[j]=|1⟩ AND ξ[j]=|0⟩  (recourse scenario)
+        → rotates ancilla by  π·c_r/norm
+
+    After F_sin:  Pr[ancilla=|1⟩] ≈ q̄(y,ξ) = q(y,ξ)/norm  (normalized cost).
+
+    The approximation  sin(θ)≈θ  is valid when angles are small (c/norm << 1).
+    Efficient: requires only  2·n_y  two-qubit-controlled RY gates instead of O(2^n).
+    """
     qc = QuantumCircuit(args['n_y']*2 + 1, name='F')
     ancilla = args['n_y']*2
     scale = np.pi*1/args['norm']
@@ -74,7 +156,22 @@ def single_oracle_sin_inconstraint(args:dict, inverse=False) -> QuantumCircuit:
     return qc
 
 def dicke_state_circuit(args:dict) -> QuantumCircuit:
-    ''' https://arxiv.org/pdf/1904.07358.pdf '''
+    """
+    Reference: https://arxiv.org/pdf/1904.07358.pdf
+
+    Prepare the Dicke state  |D_n^k⟩  on n = args['n_y'] qubits with k = args['w_d'] ones.
+
+    The Dicke state is a UNIFORM superposition over all n-bit strings with exactly k ones:
+
+        |D_n^k⟩ = 1/√C(n,k)  Σ_{|y|=k} |y⟩
+
+    This is the initial state for DQA: every term already satisfies the demand
+    constraint sum(y) = wind_demand.  The XY mixer then keeps the state within
+    this feasible subspace throughout the annealing.
+
+    Uses the SCS (Splitting-Coherence-Splitting) construction from
+    Bärtschi & Eidenbenz, arXiv:1904.07358.  Gate count O(n*k), no ancilla.
+    """
     qc = QuantumCircuit(args['n_y'], name='DickeState')
     if args['w_d'] == 0:
         return qc
@@ -103,14 +200,33 @@ def dicke_state_circuit(args:dict) -> QuantumCircuit:
     return qc
 
 def alternating_operator_ansatz(args:dict) -> QuantumCircuit:
-    '''
-    Creates alternating ansatz circuit given circuits for cost operator and mixer operator
-    Input: args - dict containing the following: num_qubits - int, gate used - str, graph edge list - list, 
-    angle - Parameter, cost_operator_circuit - Function that returns a QuantumCircuit, 
-    initial_state - QuantumCircuit
-    mixer_operator_circuit - Function that returns a QuantumCircuit, cost_qubits - list, ancilla_qubits - list, Theta - list
+    """
+    Creates alternating ansatz circuit given circuits for cost operator and mixer operator.
+    Input:  args - dict containing num_qubits, gate used, graph edge list, angle (Parameter),
+            cost_operator_circuit (Function), initial_state (QuantumCircuit),
+            mixer_operator_circuit (Function), cost_qubits, ancilla_qubits, Theta (list).
     Output: QuantumCircuit
-    '''
+
+    Build the DQA (Discrete Quantum Annealing) ansatz circuit  U_DQA.
+
+    This is the QAOA-style alternating-operator ansatz:
+
+        U_DQA = [initial_state] ⊗ [pdf_state]
+                · Π_i  (cost_op or mixer_op)(Theta[i])
+
+    Layout:
+      y_reg   (wind turbines)  : initialized with Dicke state |D_n^{w_d}⟩
+      pdf_reg (wind scenarios) : initialized with PDF state |ξ⟩ encoding Pr[ξ]
+
+    Then alternating layers indexed by Theta (the variational angles):
+      even i : cost_operator_circuit(Theta[i])   on y_reg + pdf_reg
+               (encodes second-stage cost as phase)
+      odd  i : mixer_operator_circuit(Theta[i])  on y_reg only
+               (mixes turbine decisions while preserving demand constraint)
+
+    The angles Theta are set by the linear annealing schedule  s(t) = t/T,
+    making this a parameterized quantum circuit that approximates adiabatic evolution.
+    """
     qc = QuantumCircuit(args['n_y']*2)
 
     qc.append(args['initial_state_circuit'](args).to_gate(), args['y_reg'])

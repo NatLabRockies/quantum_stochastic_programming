@@ -23,6 +23,24 @@ args should be the same as the args in qae.py, but should also contain the requi
 '''
 
 def make_normal_distribution_circuit(args:dict) -> QuantumCircuit:
+    """Build a quantum circuit encoding a normal (Gaussian) distribution.
+
+    Wraps Qiskit Finance's `NormalDistribution` to encode
+    $p(\\xi) \\sim \\mathcal{N}(\\mu, \\sigma^2)$ as amplitudes on `n_y` qubits.
+
+    Args:
+        args: Dictionary with keys:
+            `n_y` (int): number of qubits.
+            `mu` (float): mean of the distribution.
+            `sigma` (float): standard deviation.
+
+    Returns:
+        QuantumCircuit encoding the normal distribution on `n_y` qubits.
+
+    Note:
+        Requires `qiskit_finance`. The distribution is centered at `num_qubits/2`
+        when `mu=0`.
+    """
     mu = args['mu']  # Can be changed as needed NOTE: qiskit NormalDistribution centers the dist at num_qubits/2 when mu=0
     sigma = args['sigma'] # Can be changed as needed
 
@@ -31,6 +49,21 @@ def make_normal_distribution_circuit(args:dict) -> QuantumCircuit:
     return qc
 
 def make_variational_distribution_circuit(args:dict) -> QuantumCircuit:
+    """Build a variational (trainable) circuit for encoding a probability distribution.
+
+    Constructs an ansatz of alternating RY rotation layers and CNOT entanglers.
+    The rotation angles are trainable parameters that can be optimized to
+    approximate an arbitrary target distribution.
+
+    Args:
+        args: Dictionary with keys:
+            `n_y` (int): number of qubits.
+            `variational_angles` (list[float]): flat list of RY angles,
+                length must equal `depth * n_y`.
+
+    Returns:
+        QuantumCircuit with depth = `len(variational_angles) // n_y` layers.
+    """
 
     qc = QuantumCircuit(args['n_y'])
     
@@ -44,14 +77,19 @@ def make_variational_distribution_circuit(args:dict) -> QuantumCircuit:
 
 
 def make_pdf_skewnormal(n:int) -> QuantumCircuit:
-    '''
-    Generates a probability density for a skew normal distribution
-
+    """
+    Generates a probability density for a skew normal distribution.
     Input: system size n
+    Output: dictionary containing PDF
 
-    Output: dictionary containing PDF 
-    
-    '''
+    Build a discrete PDF approximating a skew-normal distribution over n-qubit bitstrings.
+
+    Strategy:
+      - Map each Hamming weight s = sum(bitstring) to a normal-distribution probability.
+      - Divide that probability equally among all bitstrings with that weight  (C(n,s) of them).
+
+    Returns: dict  {(b0,b1,...,bn-1): probability}  summing to 1.
+    """
     dist = np.arange(-1-int(n/2), int(n/2)+n%2)
     prob = scipy.stats.norm.pdf(dist, scale=1)
     prob = prob / prob.sum()
@@ -66,14 +104,19 @@ def make_pdf_skewnormal(n:int) -> QuantumCircuit:
     return pdf
 
 def make_pdf_uniform(n:int) -> QuantumCircuit:
-    '''
-    Generates a probability density for a uniform distribution
-
+    """
+    Generates a probability density for a uniform distribution.
     Input: system size n - int
-
     Output: dictionary containing PDF - dict
-    
-    '''
+
+    Build a discrete uniform PDF over all 2^n bitstrings on n qubits.
+
+    Every bitstring (including ones that violate wind-demand) gets equal probability 1/2^n.
+    This is the simplest baseline; in the quantum circuit it corresponds to
+    n Hadamard gates  H^{\otimes n}  on the pdf register.
+
+    Returns: dict  {(b0,b1,...,bn-1): 1/2^n}.
+    """
     #vec = np.zeros(2**n)
     pdf = {}
     for i in range(2**n):
@@ -83,7 +126,21 @@ def make_pdf_uniform(n:int) -> QuantumCircuit:
     return pdf
 
 def pdf_initialize(args:dict) -> QuantumCircuit:
-    ''' Create the pdf as a wavefunction '''
+    """
+    Create the pdf as a wavefunction.
+
+    Build a quantum circuit that encodes the PDF  Pr[ξ]  as amplitudes on the ξ register.
+
+    The prepared state is:
+        |ξ⟩ = Σ_ξ  √Pr[ξ]  |ξ⟩
+
+    so that measuring the ξ register gives outcome ξ with probability Pr[ξ].
+    This is Eq. (17) of the paper  (|ξ⟩ = Π_j H_j  for uniform, or Initialize for general).
+
+    Two cases:
+      uniform == True   : n Hadamard gates  (H^{\otimes n})  — efficient O(n) circuit
+      uniform == False  : Qiskit Initialize (arbitrary statevector) — O(2^n) gates after transpile
+    """
     qc = QuantumCircuit(args['n_y'], name=r'$|\mathcal{P}\rangle$')
     # if np.isclose(list(args['pdf'].values()), [1/2**args['num_wind_vars']]*2**args['num_wind_vars']).all():
     if args['uniform'] == True:

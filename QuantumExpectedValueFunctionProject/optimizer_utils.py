@@ -442,25 +442,29 @@ class VariableRegister:
             
             
 class PowerSystem_1Bus:
-    ''' class PowerSystem_1Bus:
-            Use this object to define an all-to-all lossless power grid (single bus approximation)
-            
-            
-            Notes below are for the optimizer
-            
-            Define several ways to solve the optimization problem, enumerated here:
-                - Simultaneously by encoding with the probability distribution
-                    - Constraint violation by slack variable
-                    - Constraint never violated
-                    
-                - Expansion of different scenarios; 
-                
-            NOTE: discretization and costs must follow this constraint: cost*(levels-1) = max_cost
-    '''    
+    """All-to-all lossless single-bus power system specification.
+
+    Stores all parameters of the two-stage stochastic unit commitment problem
+    and provides utilities for normalizing costs, evaluating the classical solution,
+    and post-processing quantum measurement results.
+
+    The single-bus approximation ignores transmission losses, so every generator
+    contributes directly to meeting total demand $d$.
+
+    Args:
+        gas_costs: List of per-unit costs for gas generators.
+        wind_costs: List of per-unit operational costs for wind turbines.
+        decision_levels: Number of discrete levels per variable (integer range 0 to `decision_levels-1`).
+        undersatisfied_cost: Penalty cost per unit of unmet demand (recourse cost $c_r$).
+        demand: Total demand $d$ that must be met.
+        pdf: Dict mapping scenario tuples $(\\xi_0, \\xi_1, \\ldots)$ to probabilities.
+        normalization: Optional `(max_cost, max_amplitude)` pair for scaling.
+
+    Note:
+        Discretization constraint: `cost * (decision_levels - 1) == max_cost`.
+    """
     def __init__(self, gas_costs, wind_costs, decision_levels, undersatisfied_cost, demand, pdf, normalization=None):
-        ''' ctor.
-            initialize the power system with the costs of each variable, levels, and pdf
-        '''
+        '''Initialize the power system with costs, discretization, and PDF.'''
         assert(np.isclose(sum(pdf.values()),1.))
         
         # number of each generator type and cost
