@@ -459,6 +459,110 @@ def oracle_sin(c_y: list[float], c_r: float, norm: float,
     return
 
 
+# =============================================================================
+# QAE kernels — Quantum Amplitude Estimation
+# Qiskit counterpart: BinaryNestedOptimizer.implemented_qae() in binary_optimizer.py
+# =============================================================================
+
+@cudaq.kernel
+def _a_op(dicke_angles: list[float],
+          c_y: list[float], c_r: float, cost_norm: float, w_d: int,
+          thetas: list[float], n_steps: int, n_y: int,
+          qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """A operator: U_opt followed by F_sin oracle on ancilla.
+
+    Prepares:  A|0⟩ = sqrt(1-a)|ψ_bad⟩|0⟩ + sqrt(a)|ψ_good⟩|1⟩
+    where a ≈ E[Q]/norm (normalized expected cost).
+
+    Qiskit counterpart: BernoulliA.__init__() — appends op then oracle.
+    system qubits: qubits[0..2*n_y-1] (y register then xi register)
+    ancilla: separate qubit
+    """
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+
+    # U_opt: Dicke state + PDF + DQA layers
+    dicke_state(n_y, w_d, dicke_angles, y)
+    pdf_init_uniform(xi)
+    for i in range(n_steps * 2):
+        if i % 2 == 0:
+            cost_operator(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer(thetas[i], y)
+
+    # F_sin oracle: encodes E[Q] as Pr[ancilla=|1⟩]
+    oracle_sin(c_y, c_r, cost_norm, y, xi, ancilla)
+
+
+@cudaq.kernel
+def _s_chi(ancilla: cudaq.qubit):
+    """S_χ: phase flip on |ψ_good⟩ — reflects about ancilla=|0⟩ subspace.
+
+    Applies -1 phase to all states where ancilla=|1⟩:
+        S_χ = I - 2|ψ_good⟩⟨ψ_good| ≡ X·Z·X on ancilla (up to global phase).
+
+    Qiskit counterpart: the 'S_psi0' block in implemented_qae():
+        qc.x(ancilla); qc.cz(..., ancilla); qc.x(ancilla)  (phase on |1⟩)
+    """
+    z(ancilla)
+
+
+@cudaq.kernel
+def _s0(n_y: int, qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """S_0: phase flip of |00...0⟩ on system+ancilla register.
+
+    Implements I - 2|0⟩⟨0| via X-flip all, multi-controlled Z, X-flip back.
+
+    Qiskit counterpart: the 'S_0' block in implemented_qae():
+        for q in all_qubits: qc.x(q)
+        qc.h(last); qc.mcx(controls, last); qc.h(last)   <- multi-controlled Z
+        for q in all_qubits: qc.x(q)
+    """
+    # Flip all qubits so |0...0⟩ maps to |1...1⟩
+    for i in range(2 * n_y):
+        x(qubits[i])
+    x(ancilla)
+    # Multi-controlled Z: fire only when all are |1⟩ (= original |0...0⟩ state)
+    # Decompose as H · MCX · H on ancilla with qubits as controls
+    h(ancilla)
+    cudaq.control(_mcx_helper, qubits, ancilla)
+    h(ancilla)
+    # Unflip
+    for i in range(2 * n_y):
+        x(qubits[i])
+    x(ancilla)
+
+
+@cudaq.kernel
+def _mcx_helper(target: cudaq.qubit):
+    """Single-qubit X — used as the target of cudaq.control for MCX in S_0."""
+    x(target)
+
+
+@cudaq.kernel
+def _grover_iterate(dicke_angles: list[float],
+                    c_y: list[float], c_r: float, cost_norm: float, w_d: int,
+                    thetas: list[float], n_steps: int, n_y: int,
+                    qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """One Grover iterate: Q = A · S_0 · A† · S_χ
+
+    Qiskit counterpart: the inner block of the QPE loop in implemented_qae():
+        S_psi0 (flip ancilla=|1⟩) -> A†  -> S_0 (flip |0...0⟩) -> A
+
+    Note: CUDA-Q cudaq.adjoint() compiles the exact unitary inverse of a kernel.
+    """
+    # S_χ: phase flip on |good⟩ (ancilla = |1⟩)
+    _s_chi(ancilla)
+    # A†: inverse of A operator
+    cudaq.adjoint(_a_op, dicke_angles, c_y, c_r, cost_norm, w_d,
+                  thetas, n_steps, n_y, qubits, ancilla)
+    # S_0: phase flip of |0...0⟩
+    _s0(n_y, qubits, ancilla)
+    # A: reapply A operator
+    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d,
+          thetas, n_steps, n_y, qubits, ancilla)
+
+
 # # -----------------------------------------------------------------------------
 # # Full DQA ansatz kernel (alternating_operator_ansatz in CUDA-Q)
 # # Theta list: [gamma_0, beta_0, gamma_1, beta_1, ...]
@@ -645,18 +749,22 @@ class CudaqQAEOptimizer:
         self.c_y = list(c_y)
         self.c_r = float(c_r)
         self.n_y = n_y
+        self.n_xi = n_xi
         self.w_d = w_d
         self.cost_norm = cost_norm
         self.dang = dicke_state_angles(n_y, w_d)
         self.noise_model = noise_model  # None ⇒ ideal (noiseless) simulation
         return
 
-    def sample_ansatz(self, thetas: list, shots: int = 4096) -> dict:
+    def sample_ansatz(self, thetas: list, shots: int = 4096,
+                      qpu_id: int = 0) -> dict:
         """Sample the DQA ansatz and return bitstring probabilities.
 
         Args:
-            thetas: Alternating [gamma, beta, gamma, beta, ...] angles.
-            shots:  Number of measurement shots.
+            thetas:  Alternating [gamma, beta, gamma, beta, ...] angles.
+            shots:   Number of measurement shots.
+            qpu_id:  QPU index to target (only relevant for the nvidia mqpu
+                     target; ignored for single-GPU / CPU targets).
 
         Returns:
             Dict {bitstring: probability} over 2*n_y qubits (y+xi register).
@@ -759,7 +867,7 @@ class CudaqQAEOptimizer:
         return np.array(state)
 
     def estimate_expected_value(self, thetas: list, wind_demand: int,
-                                shots: int = 4096) -> float:
+                                shots: int = 4096, qpu_id: int = 0) -> float:
         """Estimate E[Q(x, xi)] via DQA sampling and classical post-processing.
 
         Mirrors BinaryNestedOptimizer.execute_optimizer +
@@ -769,11 +877,12 @@ class CudaqQAEOptimizer:
             thetas:       DQA angles [gamma_0, beta_0, ...].
             wind_demand:  k — required Hamming weight of y (= d - x).
             shots:        Number of measurement shots.
+            qpu_id:       QPU index to target (nvidia mqpu only).
 
         Returns:
             Float — estimated expected second-stage cost.
         """
-        probs = self.sample_ansatz(thetas, shots=shots)
+        probs = self.sample_ansatz(thetas, shots=shots, qpu_id=qpu_id)
         expectation = 0.0
         for bstr, prob in probs.items():
             # CUDA-Q bitstring convention: qubit 0 = leftmost character.
@@ -785,6 +894,81 @@ class CudaqQAEOptimizer:
             cost = self._wind_scenario_cost(y_bits, xi_bits, wind_demand)
             expectation += cost * prob
         return expectation
+
+    def estimate_expected_value_batch_async(
+            self, thetas_list: list, wind_demand: int,
+            shots: int = 4096) -> list:
+        """Evaluate multiple angle configurations in parallel using nvidia-mqpu.
+
+        Under the ``nvidia mqpu`` target each GPU is a separate QPU.  This
+        method distributes a *batch* of different ``thetas`` configurations
+        across the available QPUs and executes them simultaneously via
+        ``cudaq.sample_async``.  Each GPU independently simulates its assigned
+        circuit; wall time scales as ``ceil(len(thetas_list) / n_qpus)``
+        instead of ``len(thetas_list)``.
+
+        This is the correct use of ``nvidia-mqpu``: parallelising over
+        *different circuits* (different angle sets), NOT splitting the shots
+        of a single circuit.  Splitting shots of one circuit provides no
+        speedup because statevector simulation — O(2**n) — dominates over
+        shot collection, which is trivially fast by comparison.
+
+        Falls back gracefully to sequential evaluation when only one QPU is
+        available.
+
+        Usage (optimizer gradient via finite differences)::
+
+            cudaq.set_target('nvidia', option='mqpu')
+            opt = CudaqQAEOptimizer(...)
+            perturbed = [thetas_plus_eps_i for i in range(len(thetas))]
+            phi_batch = opt.estimate_expected_value_batch_async(
+                perturbed, w_d, shots=2**14)
+
+        Args:
+            thetas_list: List of angle vectors, each a ``[gamma_0, beta_0, …]``
+                         list.  Each entry is one independent circuit evaluation.
+            wind_demand: k — required Hamming weight of y (= d - x).
+            shots:       Number of measurement shots per configuration.
+
+        Returns:
+            List of floats, one estimated expected cost per entry in
+            ``thetas_list``, in the same order.
+        """
+        if not thetas_list:
+            return []
+
+        n_qpus = cudaq.get_target().num_qpus()
+
+        if n_qpus <= 1:
+            # Single QPU / CPU — evaluate sequentially
+            return [
+                self.estimate_expected_value(th, wind_demand, shots=shots)
+                for th in thetas_list
+            ]
+
+        # Round-robin: assign each config to a GPU index
+        qpu_ids = [i % n_qpus for i in range(len(thetas_list))]
+
+        # Fan out: fire all async jobs before blocking on any
+        futures = [
+            self.sample_ansatz_async(th, shots=shots, qpu_id=qid)
+            for th, qid in zip(thetas_list, qpu_ids)
+        ]
+
+        # Collect and compute expected value for each config
+        results = []
+        for future in futures:
+            counts = future.get()
+            total = sum(counts.values())
+            expectation = 0.0
+            for bstr, cnt in counts.items():
+                prob    = cnt / total
+                y_bits  = [int(b) for b in bstr[:self.n_y]]
+                xi_bits = [int(b) for b in bstr[self.n_y:]]
+                expectation += self._wind_scenario_cost(
+                    y_bits, xi_bits, wind_demand) * prob
+            results.append(expectation)
+        return results
 
     def estimate_expected_value_sv(self, thetas: list, wind_demand: int) -> float:
         """Exact expected second-stage cost via statevector simulation (no shots).
@@ -900,6 +1084,128 @@ class CudaqQAEOptimizer:
                 self.dang, self.c_y, self.c_r, self.cost_norm,
                 self.w_d, thetas, n_steps, self.n_y)
         return result.expectation()
+    
+    def execute_qae(self, thetas: list, m: int, shots: int = 8192) -> dict:
+        """Run Quantum Amplitude Estimation and return QPE readout distribution.
+
+        Implements the canonical QAE circuit (Brassard et al. 2002):
+          1. Apply A = U_opt · F_sin once to prepare sqrt(a)|ψ_good⟩|1⟩ + ...
+          2. For each QPE qubit i (i=0..m-1): apply controlled-Q^(2^i)
+          3. Inverse QFT on QPE register
+          4. Measure QPE qubits -> integer b -> a ≈ sin²(bπ/2^m)
+
+        Qiskit counterpart: BinaryNestedOptimizer.implemented_qae() +
+        execute_qae() in binary_optimizer.py.
+
+        Total qubits: m (QPE) + 2*n_y (system) + 1 (ancilla) = m + 2*n_y + 1
+
+        Args:
+            thetas: DQA angles [gamma_0, beta_0, ...].
+            m:      Number of QPE estimate qubits (error ~ π/2^m).
+            shots:  Measurement shots.
+
+        Returns:
+            Dict {b_bitstring: probability} over all 2^m QPE outcomes.
+        """
+        n_steps = len(thetas) // 2
+        n_total = m + 2 * self.n_y + 1   # QPE + system + ancilla
+
+        @cudaq.kernel
+        def qae_circuit(dicke_angles: list[float],
+                        c_y: list[float], c_r: float, cost_norm: float, w_d: int,
+                        thetas: list[float], n_steps: int, n_y: int, m_qpe: int):
+            all_qubits = cudaq.qvector(m_qpe + 2 * n_y + 1)
+            qpe_reg  = all_qubits[0:m_qpe]
+            sys_reg  = all_qubits[m_qpe:m_qpe + 2 * n_y]
+            anc      = all_qubits[m_qpe + 2 * n_y]
+
+            # Step 1: H on all QPE qubits
+            for i in range(m_qpe):
+                h(qpe_reg[i])
+
+            # Step 2: Apply A once (unconditionally)
+            _a_op(dicke_angles, c_y, c_r, cost_norm, w_d,
+                  thetas, n_steps, n_y, sys_reg, anc)
+
+            # Step 3: Controlled-Q^(2^i) for each QPE qubit i
+            # Unroll: apply _grover_iterate controlled on qpe_reg[i], 2^i times
+            for i in range(m_qpe):
+                reps = 1 << i   # 2^i
+                for _ in range(reps):
+                    cudaq.control(_grover_iterate,
+                                  [qpe_reg[i]],
+                                  dicke_angles, c_y, c_r, cost_norm, w_d,
+                                  thetas, n_steps, n_y, sys_reg, anc)
+
+            # Step 4: Inverse QFT on QPE register
+            # CUDA-Q has no built-in IQFT; implement manually.
+            # IQFT on m qubits: reverse order, then H + controlled-Rz(-π/2^k) pattern.
+            # Reverse qubit order
+            for i in range(m_qpe // 2):
+                swap(qpe_reg[i], qpe_reg[m_qpe - 1 - i])
+            # QFT† layers
+            for i in range(m_qpe):
+                h(qpe_reg[i])
+                for j in range(i + 1, m_qpe):
+                    angle = -math.pi / (1 << (j - i))
+                    cr1(angle, qpe_reg[j], qpe_reg[i])
+
+        counts = cudaq.sample(
+            qae_circuit,
+            self.dang, self.c_y, self.c_r, self.cost_norm,
+            self.w_d, thetas, n_steps, self.n_y, m,
+            shots_count=shots)
+
+        # Marginalize: keep only the m QPE qubits (leftmost m chars in CUDA-Q convention)
+        qpe_counts: dict = {}
+        total = sum(counts.values())
+        for bstr, cnt in counts.items():
+            b = bstr[:m]   # QPE qubits are allocated first -> leftmost chars
+            qpe_counts[b] = qpe_counts.get(b, 0) + cnt
+        return {b: v / total for b, v in qpe_counts.items()}
+
+    def process_qae_result(self, qpe_counts: dict, m: int) -> float:
+        """Convert QPE readout distribution to estimated expected cost.
+
+        Post-processing (mirrors execute_qae caller in binary_optimizer.py):
+            b_str = argmax p(b)
+            b_int = int(b_str, 2)
+            a_tilde   = sin²(b_int · π / 2^m)
+            phi_tilde = a_tilde · cost_norm
+
+        Args:
+            qpe_counts: Dict {b_bitstring: probability} from execute_qae().
+            m:          Number of QPE qubits (must match execute_qae call).
+
+        Returns:
+            Float — estimated expected second-stage cost.
+        """
+        b_str = max(qpe_counts, key=qpe_counts.get)
+        b_int = int(b_str, 2)
+        a_tilde = math.sin(b_int * math.pi / (1 << m)) ** 2
+        return a_tilde * self.cost_norm
+
+    def estimate_expected_value_qae(self, thetas: list, m: int,
+                                    shots: int = 8192) -> float:
+        """End-to-end QAE expected cost estimate.
+
+        Combines execute_qae() and process_qae_result() into a single call.
+        Achieves O(1/2^m) error vs O(1/sqrt(shots)) for classical sampling,
+        with quadratic quantum speedup in the number of oracle calls.
+
+        Qiskit counterpart: execute_qae() + argmax post-processing
+        in binary_optimizer.py.
+
+        Args:
+            thetas: DQA angles [gamma_0, beta_0, ...].
+            m:      QPE qubits — error scales as π·norm/2^m.
+            shots:  Measurement shots.
+
+        Returns:
+            Float — QAE-estimated expected second-stage cost.
+        """
+        qpe_counts = self.execute_qae(thetas, m=m, shots=shots)
+        return self.process_qae_result(qpe_counts, m=m)
 
     def estimate_expected_value_noisy_trajectory(
             self, thetas: list, num_trajectories: int = 1024) -> float:

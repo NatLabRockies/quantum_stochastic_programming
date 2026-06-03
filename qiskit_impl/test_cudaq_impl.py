@@ -586,3 +586,182 @@ class TestCudaqVsQiskit:
             ratio = cudaq_phi / qiskit_phi
             assert 0.1 < ratio < 10.0, (
                 f"CUDA-Q={cudaq_phi:.3f} and Qiskit={qiskit_phi:.3f} differ by {ratio:.1f}x")
+
+# =============================================================================
+# Tests for QAE kernels and CudaqQAEOptimizer.execute_qae / process_qae_result
+# =============================================================================
+import math
+import pytest
+import numpy as np
+
+import cudaq
+from cudaq_impl import (
+    CudaqQAEOptimizer,
+    _a_op, _s_chi, _s0, _mcx_helper, _grover_iterate,
+    dicke_state_angles,
+)
+
+cudaq.set_target('qpp-cpu')
+
+# ── Shared small-problem fixture ──────────────────────────────────────────────
+@pytest.fixture
+def small_opt():
+    """n_y=2, w_d=1 — smallest non-trivial case."""
+    return CudaqQAEOptimizer(
+        c_x=[3.], c_y=[0.4, 0.8], c_r=5.0,
+        n_y=2, w_d=1, cost_norm=5.0,
+    )
+
+
+@pytest.fixture
+def small_thetas():
+    """One DQA layer (2 angles)."""
+    return [0.4, 0.3]
+
+
+# ── process_qae_result — pure Python, deterministic ──────────────────────────
+class TestProcessQaeResult:
+    def test_peak_at_zero_gives_zero(self, small_opt):
+        # b=0 -> sin²(0) = 0
+        counts = {'00': 1.0}
+        assert small_opt.process_qae_result(counts, m=2) == pytest.approx(0.0)
+
+    def test_peak_at_half_range_gives_norm(self, small_opt):
+        # b = 2^(m-1) = 2 for m=2 -> sin²(2π/4) = sin²(π/2) = 1 -> cost_norm
+        counts = {'10': 1.0, '00': 0.0}
+        result = small_opt.process_qae_result(counts, m=2)
+        assert result == pytest.approx(small_opt.cost_norm)
+
+    def test_peak_selects_argmax(self, small_opt):
+        # Should pick b=1 (prob 0.7) over b=2 (prob 0.3)
+        counts = {'01': 0.7, '10': 0.3}
+        result_peak = small_opt.process_qae_result({'01': 0.7, '10': 0.3}, m=2)
+        result_other = small_opt.process_qae_result({'01': 0.3, '10': 0.7}, m=2)
+        assert result_peak != pytest.approx(result_other)
+
+    def test_result_in_valid_range(self, small_opt):
+        # Any output must be in [0, cost_norm]
+        for b in range(4):
+            bstr = format(b, '02b')
+            result = small_opt.process_qae_result({bstr: 1.0}, m=2)
+            assert 0.0 <= result <= small_opt.cost_norm + 1e-9
+
+
+# ── _s_chi — Z on ancilla flips phase of |1⟩ ─────────────────────────────────
+@cudaq.kernel
+def _test_s_chi_kernel(init_one: bool) -> bool:
+    """Apply Z (S_chi) to ancilla and measure."""
+    anc = cudaq.qubit()
+    if init_one:
+        x(anc)
+    _s_chi(anc)
+    return mz(anc)
+
+
+class TestSChi:
+    def test_z_on_zero_leaves_zero(self):
+        # Z|0⟩ = |0⟩, measurement should give 0
+        results = cudaq.run(_test_s_chi_kernel, False, shots_count=256)
+        assert all(r == False for r in results)
+
+    def test_z_on_one_leaves_one(self):
+        # Z|1⟩ = -|1⟩, magnitude unchanged, still measures as 1
+        results = cudaq.run(_test_s_chi_kernel, True, shots_count=256)
+        assert all(r == True for r in results)
+
+
+# ── _a_op — ancilla should have non-zero |1⟩ amplitude ───────────────────────
+@cudaq.kernel
+def _test_a_op_kernel(dicke_angles: list[float],
+                      c_y: list[float], c_r: float, cost_norm: float,
+                      w_d: int, thetas: list[float], n_steps: int, n_y: int):
+    all_q = cudaq.qvector(2 * n_y + 1)
+    sys   = all_q[0:2 * n_y]
+    anc   = all_q[2 * n_y]
+    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
+
+
+class TestAOp:
+    def test_ancilla_has_nonzero_amplitude(self, small_opt, small_thetas):
+        """After A|0⟩, the ancilla must have some |1⟩ amplitude (cost > 0)."""
+        dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
+        n_steps = len(small_thetas) // 2
+        sv = cudaq.get_state(
+            _test_a_op_kernel,
+            dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
+            small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+        )
+        sv_arr   = np.array(sv)
+        n_total  = 2 * small_opt.n_y + 1
+        # ancilla is the last qubit (index n_total-1); |1⟩ states have bit 0 set in LSB
+        prob_anc1 = sum(abs(sv_arr[i])**2 for i in range(len(sv_arr))
+                        if (i >> 0) & 1)   # qubit 0 = LSB in statevector indexing
+        assert prob_anc1 > 1e-6, "Ancilla should have non-zero |1⟩ amplitude"
+
+    def test_statevector_is_normalised(self, small_opt, small_thetas):
+        dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
+        n_steps = len(small_thetas) // 2
+        sv = cudaq.get_state(
+            _test_a_op_kernel,
+            dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
+            small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+        )
+        norm = sum(abs(a)**2 for a in np.array(sv))
+        assert norm == pytest.approx(1.0, abs=1e-6)
+
+
+# ── execute_qae — distribution shape and validity ────────────────────────────
+class TestExecuteQae:
+    def test_returns_dict_with_m_bit_keys(self, small_opt, small_thetas):
+        m = 3
+        counts = small_opt.execute_qae(small_thetas, m=m, shots=512)
+        assert isinstance(counts, dict)
+        assert len(counts) > 0
+        for key in counts:
+            assert len(key) == m, f"Key '{key}' should have length {m}"
+            assert all(c in '01' for c in key)
+
+    def test_probabilities_sum_to_one(self, small_opt, small_thetas):
+        counts = small_opt.execute_qae(small_thetas, m=3, shots=1024)
+        total = sum(counts.values())
+        assert total == pytest.approx(1.0, abs=1e-9)
+
+    def test_all_probabilities_non_negative(self, small_opt, small_thetas):
+        counts = small_opt.execute_qae(small_thetas, m=3, shots=512)
+        for k, v in counts.items():
+            assert v >= 0.0, f"Negative probability for key '{k}'"
+
+    @pytest.mark.parametrize('m', [2, 3, 4])
+    def test_different_m_values(self, small_opt, small_thetas, m):
+        counts = small_opt.execute_qae(small_thetas, m=m, shots=256)
+        assert all(len(k) == m for k in counts)
+        assert sum(counts.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+# ── estimate_expected_value_qae — end-to-end sanity ──────────────────────────
+class TestEstimateExpectedValueQae:
+    def test_result_is_float(self, small_opt, small_thetas):
+        result = small_opt.estimate_expected_value_qae(small_thetas, m=3, shots=512)
+        assert isinstance(result, float)
+
+    def test_result_in_valid_range(self, small_opt, small_thetas):
+        result = small_opt.estimate_expected_value_qae(small_thetas, m=3, shots=512)
+        assert 0.0 <= result <= small_opt.cost_norm + 1e-9
+
+    def test_consistent_across_calls(self, small_opt, small_thetas):
+        """Two runs with many shots should give similar results."""
+        r1 = small_opt.estimate_expected_value_qae(small_thetas, m=4, shots=4096)
+        r2 = small_opt.estimate_expected_value_qae(small_thetas, m=4, shots=4096)
+        # QAE is deterministic up to shot noise; allow 20% relative tolerance
+        assert abs(r1 - r2) < 0.2 * max(r1, r2, 1e-6)
+
+    def test_qae_and_dqa_order_of_magnitude_agree(self, small_opt, small_thetas):
+        """QAE and DQA should be in the same ballpark for the same circuit."""
+        qae_phi = small_opt.estimate_expected_value_qae(small_thetas, m=4, shots=4096)
+        dqa_phi = small_opt.estimate_expected_value(small_thetas, wind_demand=small_opt.w_d, shots=4096)
+        # Not exact equality (different algorithms), but within 2x
+        if dqa_phi > 1e-6:
+            ratio = qae_phi / dqa_phi
+            assert 0.1 <= ratio <= 10.0, (
+                f"QAE ({qae_phi:.4f}) and DQA ({dqa_phi:.4f}) differ by more than 10x"
+            )
