@@ -32,7 +32,7 @@ import cudaq
 from cudaq_impl import CudaqQAEOptimizer
 
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
-MAX_N_Y = 16
+MAX_N_Y = 9
 MAX_CPU_N_Y = 9
 # MAX_SINGLE_GPU_N_Y = 16
 N_Y_VALUES = range(3, MAX_N_Y + 1) # n_y values to sweep
@@ -41,9 +41,9 @@ N_SHOTS    = 2**14                 # shots for CUDA-Q shot-based backends
 # Backends to benchmark. Comment out any that are unavailable on your system.
 BACKENDS = [
     'qiskit-cpu',    # Qiskit AerSimulator, device=CPU
-    'qiskit-gpu',    # Qiskit AerSimulator, device=GPU (skipped if no CUDA device)
+    # 'qiskit-gpu',    # Qiskit AerSimulator, device=GPU (skipped if no CUDA device)
     'qpp-cpu',       # CUDA-Q reference CPU simulator
-    'nvidia',        # CUDA-Q cuStateVec single-GPU
+    # 'nvidia',        # CUDA-Q cuStateVec single-GPU
     # 'nvidia-mqpu',   # CUDA-Q multi-QPU — parallelises *different* circuits across GPUs;
     #                  # use estimate_expected_value_batch_async() for batch angle sweeps,
     #                  # NOT for a single fixed-angle forward pass (no speedup there).
@@ -272,30 +272,30 @@ ax_time.grid(True, alpha=0.3, which='both')
 
 plt.suptitle('Backend $n_y$ sweep — DQA comparison', fontsize=13, fontweight='bold')
 plt.tight_layout()
-plt.savefig('backend_sweep_results.png', dpi=150)
+# plt.savefig('backend_sweep_results.png', dpi=150)
 plt.show()
 print("Plot saved to backend_sweep_results.png")
 
-# ── CSV OUTPUT ─────────────────────────────────────────────────────────────────
-csv_path = 'backend_sweep_results.csv'
-with open(csv_path, 'w', newline='') as f:
-    writer = csv.writer(f)
-    # Header
-    header = ['n_y', 'n_qubits', 'w_d']
-    for b in BACKENDS:
-        header += [f'{b}_dqa_phi', f'{b}_dqa_ms']
-    writer.writerow(header)
-    # Rows
-    for n_y in all_n_y:
-        w_d_val = next(
-            (r['w_d'] for b in BACKENDS for r in results[b] if r['n_y'] == n_y),
-            ''
-        )
-        row = [n_y, 2 * n_y, w_d_val]
-        for b in BACKENDS:
-            rec = next((r for r in results[b] if r['n_y'] == n_y), None)
-            phi = f"{rec['dqa_phi']:.6f}"  if (rec and rec['dqa_phi']  is not None) else ''
-            ms  = f"{rec['dqa_time']*1e3:.3f}" if (rec and rec['dqa_time'] is not None) else ''
-            row += [phi, ms]
-        writer.writerow(row)
-print(f"Results saved to {csv_path}")
+# # ── CSV OUTPUT ─────────────────────────────────────────────────────────────────
+# csv_path = 'backend_sweep_results.csv'
+# with open(csv_path, 'w', newline='') as f:
+#     writer = csv.writer(f)
+#     # Header
+#     header = ['n_y', 'n_qubits', 'w_d']
+#     for b in BACKENDS:
+#         header += [f'{b}_dqa_phi', f'{b}_dqa_ms']
+#     writer.writerow(header)
+#     # Rows
+#     for n_y in all_n_y:
+#         w_d_val = next(
+#             (r['w_d'] for b in BACKENDS for r in results[b] if r['n_y'] == n_y),
+#             ''
+#         )
+#         row = [n_y, 2 * n_y, w_d_val]
+#         for b in BACKENDS:
+#             rec = next((r for r in results[b] if r['n_y'] == n_y), None)
+#             phi = f"{rec['dqa_phi']:.6f}"  if (rec and rec['dqa_phi']  is not None) else ''
+#             ms  = f"{rec['dqa_time']*1e3:.3f}" if (rec and rec['dqa_time'] is not None) else ''
+#             row += [phi, ms]
+#         writer.writerow(row)
+# print(f"Results saved to {csv_path}")
