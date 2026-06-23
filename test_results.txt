@@ -1,0 +1,7 @@
+QUANTUM STOCHASTIC OPTIMIZATION — RESULTS
+======================================================================
+Problem: 4 turbines, 16 scenarios, w_d=2
+Classical solution: 4.512500
+Quantum solution:   5.124329
+Error:              13.56%
+Exec time:          2518.8 ms
