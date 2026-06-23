@@ -460,6 +460,143 @@ def oracle_sin(c_y: list[float], c_r: float, norm: float,
 
 
 # =============================================================================
+# Manual adjoint kernels for A operator (replaces cudaq.adjoint which fails in
+# CUDA-Q 0.14.2 when the kernel contains loops, branches, and nested controls)
+# =============================================================================
+
+@cudaq.kernel
+def oracle_sin_dagger(c_y: list[float], c_r: float, norm: float,
+                      y: cudaq.qview, xi: cudaq.qview, ancilla: cudaq.qubit):
+    """Adjoint of oracle_sin: reverse loop order, negate CCRY angles.
+    Gate sequence per iteration in forward: ccry(theta1), x, ccry(theta2), x.
+    Adjoint per iteration (reversed):       x, ccry(-theta2), x, ccry(-theta1).
+    """
+    scale = math.pi / norm
+    for kk in range(len(y)):
+        k = len(y) - 1 - kk          # reverse loop
+        x(xi[k])
+        ccry(-c_r * scale, y[k], xi[k], ancilla)
+        x(xi[k])
+        ccry(-c_y[k] * scale, y[k], xi[k], ancilla)
+
+
+@cudaq.kernel
+def cost_operator_dagger(gamma: float,
+                         c_y: list[float], c_r: float, cost_norm: float,
+                         y: cudaq.qview, xi: cudaq.qview):
+    """Adjoint of cost_operator: reverse loop order, negate CR1 angles.
+    Gate sequence per iteration in forward: cr1(theta1), x, cr1(theta2), x.
+    Adjoint per iteration (reversed):       x, cr1(-theta2), x, cr1(-theta1).
+    """
+    scale = gamma / cost_norm
+    for kk in range(len(y)):
+        k = len(y) - 1 - kk          # reverse loop
+        x(xi[k])
+        cr1(-c_r * scale, xi[k], y[k])
+        x(xi[k])
+        cr1(-c_y[k] * scale, xi[k], y[k])
+
+
+@cudaq.kernel
+def mixer_dagger(beta: float, y: cudaq.qview):
+    """Adjoint of mixer: reverse pair order, apply fswap_power(-beta).
+    SWAP^beta adjoint = SWAP^{-beta}; also reverse the (j,k) application order.
+    Forward pairs: (0,1),(0,2),...,(n-2,n-1).
+    Reversed pairs: (n-2,n-1),...,(0,2),(0,1).
+    """
+    for ji in range(len(y)):
+        j = len(y) - 1 - ji
+        for ki in range(len(y) - 1 - j):
+            k = len(y) - 1 - ki
+            fswap_power(-beta, y[j], y[k])
+
+
+@cudaq.kernel
+def dicke_state_dagger(n: int, k: int, angles: list[float], y: cudaq.qview):
+    """Adjoint of dicke_state: reverse SCS sequence, negate all RY angles.
+
+    Uses the same angles list as the forward kernel.  Each forward angle
+    angles[i] is negated and the execution order is reversed:
+      - Phase 2 SCS steps executed before Phase 1 (reversed phase order)
+      - Within each phase, steps and j-indices run in reverse
+    The mapping to the reversed-negated angle is: -angles[total - 1 - angle_idx]
+    where angle_idx increments 0..total-1 through the dagger execution order.
+
+    Dagger loop structure derived from the forward structure:
+      Forward Phase 1 (n-k steps): start = n-k-1-step (decreasing)
+      Dagger Phase 1: start = s (increasing, s=0..n-k-1), real_j = k..1
+      Forward Phase 2 (k-1 steps): l = k-1-step (decreasing)
+      Dagger Phase 2: l = s+1 (increasing, s=0..k-2), jj in range(l)
+    Gate structure per SCS triplet: cx, mcry(-angle), cx (CX is self-adjoint).
+    """
+    total = (n - k) * k + k * (k - 1) // 2
+    angle_idx = 0
+
+    # Phase 2 dagger first (was last in forward)
+    # Dagger step s maps to forward step (k-2-s), giving l = s+1
+    for s in range(k - 1):
+        l = s + 1
+        for jj in range(l):
+            tgt = jj
+            cx(y[tgt], y[l])
+            _mcry(-angles[total - 1 - angle_idx], y[tgt + 1 : l + 1], y[tgt])
+            cx(y[tgt], y[l])
+            angle_idx += 1
+
+    # Phase 1 dagger second (was first in forward)
+    # Dagger step s maps to forward step (n-k-1-s), giving start = s
+    for s in range(n - k):
+        start = s
+        for jj in range(k):
+            real_j = k - jj          # j runs k..1 (reversed vs forward j=1..k)
+            tgt = start + k - real_j
+            cx(y[tgt], y[start + k])
+            _mcry(-angles[total - 1 - angle_idx], y[tgt + 1 : start + k + 1], y[tgt])
+            cx(y[tgt], y[start + k])
+            angle_idx += 1
+
+    # Un-init: undo the forward X flips (X is self-adjoint)
+    for i in range(k):
+        x(y[n - 1 - i])
+
+
+@cudaq.kernel
+def _a_op_dagger(dicke_angles: list[float],
+                 c_y: list[float], c_r: float, cost_norm: float, w_d: int,
+                 thetas: list[float], n_steps: int, n_y: int,
+                 qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """Manual adjoint of _a_op.
+
+    A = dicke_state · pdf_init · DQA_layers · oracle_sin
+    A† = oracle_sin† · DQA_layers† · pdf_init† · dicke_state†
+
+    Replaces cudaq.adjoint(_a_op, ...) which fails in CUDA-Q 0.14.2 with:
+      RuntimeError: could not autogenerate the adjoint of a kernel
+    Root cause: adjoint synthesis cannot handle kernels containing loops +
+    conditional branches + nested cudaq.control calls.
+    """
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+
+    # 1. F_sin oracle†
+    oracle_sin_dagger(c_y, c_r, cost_norm, y, xi, ancilla)
+
+    # 2. DQA layers† (reverse order, dagger of each layer)
+    for ii in range(n_steps * 2):
+        i = n_steps * 2 - 1 - ii    # i runs from last index down to 0
+        if i % 2 == 0:
+            cost_operator_dagger(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer_dagger(thetas[i], y)
+
+    # 3. PDF uniform† = H^⊗n (H is self-adjoint)
+    pdf_init_uniform(xi)
+
+    # 4. Dicke state†
+    dicke_state_dagger(n_y, w_d, dicke_angles, y)
+
+
+# =============================================================================
 # QAE kernels — Quantum Amplitude Estimation
 # Qiskit counterpart: BinaryNestedOptimizer.implemented_qae() in binary_optimizer.py
 # =============================================================================
@@ -554,8 +691,8 @@ def _grover_iterate(dicke_angles: list[float],
     # S_χ: phase flip on |good⟩ (ancilla = |1⟩)
     _s_chi(ancilla)
     # A†: inverse of A operator
-    cudaq.adjoint(_a_op, dicke_angles, c_y, c_r, cost_norm, w_d,
-                  thetas, n_steps, n_y, qubits, ancilla)
+    _a_op_dagger(dicke_angles, c_y, c_r, cost_norm, w_d,
+                thetas, n_steps, n_y, qubits, ancilla)
     # S_0: phase flip of |0...0⟩
     _s0(n_y, qubits, ancilla)
     # A: reapply A operator

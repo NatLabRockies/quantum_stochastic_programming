@@ -597,7 +597,7 @@ import numpy as np
 import cudaq
 from cudaq_impl import (
     CudaqQAEOptimizer,
-    _a_op, _s_chi, _s0, _mcx_helper, _grover_iterate,
+    _a_op, _a_op_dagger, _s_chi, _s0, _mcx_helper, _grover_iterate,
     dicke_state_angles,
 )
 
@@ -681,6 +681,17 @@ def _test_a_op_kernel(dicke_angles: list[float],
     _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
 
 
+@cudaq.kernel
+def _test_a_op_then_dagger_kernel(dicke_angles: list[float],
+                                  c_y: list[float], c_r: float, cost_norm: float,
+                                  w_d: int, thetas: list[float], n_steps: int, n_y: int):
+    all_q = cudaq.qvector(2 * n_y + 1)
+    sys   = all_q[0:2 * n_y]
+    anc   = all_q[2 * n_y]
+    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
+    _a_op_dagger(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
+
+
 class TestAOp:
     def test_ancilla_has_nonzero_amplitude(self, small_opt, small_thetas):
         """After A|0⟩, the ancilla must have some |1⟩ amplitude (cost > 0)."""
@@ -708,6 +719,19 @@ class TestAOp:
         )
         norm = sum(abs(a)**2 for a in np.array(sv))
         assert norm == pytest.approx(1.0, abs=1e-6)
+
+    def test_a_op_dagger_inverts_a_op(self, small_opt, small_thetas):
+        """A† · A should return |0...0⟩ up to floating-point precision."""
+        dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
+        n_steps = len(small_thetas) // 2
+        sv = cudaq.get_state(
+            _test_a_op_then_dagger_kernel,
+            dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
+            small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+        )
+        probabilities = np.abs(np.array(sv)) ** 2
+        assert probabilities[0] == pytest.approx(1.0, abs=1e-6)
+        assert sum(probabilities[1:]) == pytest.approx(0.0, abs=1e-6)
 
 
 # ── execute_qae — distribution shape and validity ────────────────────────────
@@ -749,11 +773,16 @@ class TestEstimateExpectedValueQae:
         assert 0.0 <= result <= small_opt.cost_norm + 1e-9
 
     def test_consistent_across_calls(self, small_opt, small_thetas):
-        """Two runs with many shots should give similar results."""
-        r1 = small_opt.estimate_expected_value_qae(small_thetas, m=4, shots=4096)
-        r2 = small_opt.estimate_expected_value_qae(small_thetas, m=4, shots=4096)
-        # QAE is deterministic up to shot noise; allow 20% relative tolerance
-        assert abs(r1 - r2) < 0.2 * max(r1, r2, 1e-6)
+        """Two runs with many shots should agree to within QAE's bin resolution."""
+        m, shots = 4, 4096
+        r1 = small_opt.estimate_expected_value_qae(small_thetas, m=m, shots=shots)
+        r2 = small_opt.estimate_expected_value_qae(small_thetas, m=m, shots=shots)
+        # QAE quantises results to 2**m bins; allow ~2 bins of shot-noise slack.
+        bin_width = small_opt.cost_norm * np.pi / (2 ** m)
+        assert abs(r1 - r2) < 2 * bin_width, (
+            f"QAE results {r1:.4f} vs {r2:.4f} differ by more than 2 bins "
+            f"({2 * bin_width:.4f})"
+        )
 
     def test_qae_and_dqa_order_of_magnitude_agree(self, small_opt, small_thetas):
         """QAE and DQA should be in the same ballpark for the same circuit."""
@@ -765,3 +794,4 @@ class TestEstimateExpectedValueQae:
             assert 0.1 <= ratio <= 10.0, (
                 f"QAE ({qae_phi:.4f}) and DQA ({dqa_phi:.4f}) differ by more than 10x"
             )
+    

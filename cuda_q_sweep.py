@@ -24,10 +24,16 @@ import cudaq
 from cudaq_impl import CudaqQAEOptimizer
 
 # ── CUDA-Q TARGET ──────────────────────────────────────────────────────────────
+CUDAQ_TARGET_MODE = os.getenv('CUDAQ_TARGET_MODE', 'nvidia').strip().lower()
+
 try:
-    cudaq.set_target('nvidia', option='mgpu')
-    cudaq.mpi.initialize()
-    print("[cuda-q] target set to 'nvidia' (cuStateVec).")
+    if CUDAQ_TARGET_MODE == 'mgpu':
+        # mgpu target handles its own MPI setup; do not call cudaq.mpi.initialize().
+        cudaq.set_target('nvidia', option='mgpu')
+        print("[cuda-q] target set to 'nvidia' (mgpu).")
+    else:
+        cudaq.set_target('nvidia')
+        print("[cuda-q] target set to 'nvidia' (single GPU).")
 except Exception as e:
     print(f"WARNING: nvidia target unavailable ({e}), falling back to qpp-cpu.")
     cudaq.set_target('qpp-cpu')
