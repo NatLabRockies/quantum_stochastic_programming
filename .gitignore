@@ -180,3 +180,5 @@ site/
 
 *.png
 *.csv
+
+Manifest.toml
