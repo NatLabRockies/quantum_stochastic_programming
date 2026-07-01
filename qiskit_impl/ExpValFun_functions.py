@@ -139,14 +139,24 @@ def single_oracle_sin_inconstraint(args:dict, inverse=False) -> QuantumCircuit:
     The approximation  sin(θ)≈θ  is valid when angles are small (c/norm << 1).
     Efficient: requires only  2·n_y  two-qubit-controlled RY gates instead of O(2^n).
     """
+    # Exact QAE encoding: RY(2·arcsin(√(cost/norm))) → P(ancilla=1) = cost/norm.
+    # Valid for w_d=1 (only one turbine fires per basis state; angles do not
+    # accumulate across turbines). For w_d>1 revert to linear: scale = π/norm.
     qc = QuantumCircuit(args['n_y']*2 + 1, name='F')
     ancilla = args['n_y']*2
-    scale = np.pi*1/args['norm']
-    if inverse:
-        scale *= -1
+    sign = -1 if inverse else 1
+    # For w_d=1 exactly one CCRY fires per basis state → arcsin encoding is exact.
+    # For w_d>1 multiple CCRYs compose on the ancilla; since RY angles are additive,
+    # use linear scaling (π*c/norm) so that the total angle is proportional to the
+    # total cost.  The residual error (sin² vs linear) is small when norm = w_d*c_r.
+    use_arcsin = (args.get('w_d', 1) == 1)
     for q in args['y_reg']:
-        theta_cy = args['c_y'][q] * scale 
-        theta_cr = args['c_r'] * scale
+        if use_arcsin:
+            theta_cy = sign * 2 * np.arcsin(np.sqrt(args['c_y'][q] / args['norm']))
+            theta_cr = sign * 2 * np.arcsin(np.sqrt(args['c_r'] / args['norm']))
+        else:
+            theta_cy = sign * np.pi * args['c_y'][q] / args['norm']
+            theta_cr = sign * np.pi * args['c_r'] / args['norm']
 
         qc.append(RYGate(theta_cy).control(2), [q, args['pdf_reg'][q], ancilla])
 

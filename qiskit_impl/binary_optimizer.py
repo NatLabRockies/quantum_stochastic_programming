@@ -105,6 +105,8 @@
 #   dist_prep.py           -- pure circuit construction, no simulator calls
 # =============================================================================
 
+import sys
+
 import numpy as np
 import scipy
 import random
@@ -150,6 +152,9 @@ def _get_simulator(method: str = 'statevector', shots_mode: bool = False,
         sim = AerSimulator(**options)
         # Probe GPU availability — raises if no CUDA device found
         sim.available_devices()
+        if sys.platform == 'darwin':
+            raise RuntimeError('Mac OS!')
+        ## end if
         return sim
     except Exception:
         # Fall back to CPU statevector
