@@ -1232,8 +1232,12 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
     print("\nStep B: MLQAE recovery vs simple_ed-consistent classical truth")
     print(f"  classical [phi, grad_0..grad_{N_Y-1}] = {np.round(truth, 6)}")
 
+    _rows_mlqae: list[dict] = []
+    _est_arr_mlqae: list[np.ndarray] = []
+    _err_arr_mlqae: list[np.ndarray] = []
     max_abs = 0.0
     for trial in range(trials):
+        _t_trial = _time.perf_counter()
         est = quantum_expectations_mlqae(
             oracle_thetas=oracle_thetas,
             f_min=f_min,
@@ -1249,7 +1253,24 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
         print(f"  MLQAE estimate [phi, grad_0..grad_{N_Y-1}] = {np.round(est, 6)}")
         print(f"  abs error per component                    = {np.round(abs_err, 6)}")
 
+        _est_arr_mlqae.append(est.copy())
+        _err_arr_mlqae.append(abs_err.copy())
+        _rows_mlqae.append(dict(
+            pipeline='mlqae', trial=trial,
+            **{f'est_{i}': float(est[i])     for i in range(len(est))},
+            **{f'err_{i}': float(abs_err[i]) for i in range(len(abs_err))},
+            max_err=float(abs_err.max()),
+            time_s=float(_time.perf_counter() - _t_trial),
+        ))
+
     print(f"\nMAX absolute error across trials/components: {max_abs:.3e}")
+    if len(_est_arr_mlqae) > 1:
+        _stk = np.stack(_est_arr_mlqae, axis=0)
+        _estk = np.stack(_err_arr_mlqae, axis=0)
+        print(f"  estimate  mean: {np.round(np.mean(_stk,  axis=0), 6)}")
+        print(f"  estimate   std: {np.round(np.std(_stk,   axis=0), 6)}")
+        print(f"  abs error mean: {np.round(np.mean(_estk, axis=0), 6)}")
+        print(f"  abs error  std: {np.round(np.std(_estk,  axis=0), 6)}")
     print("Reference analytical grad under uniform xi:")
     analytical_grad = [0.5 * C_Y_EFF[j] + 0.5 * C_R for j in range(N_Y)]
     print(f"  {np.round(analytical_grad, 6)}")
@@ -1293,6 +1314,9 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
     print("Pure DQA: objective and gradient expectation values")
     print(f"  n_steps={n_steps_dqa} | cost_norm={cost_norm_dqa:.2f}")
     print(f"  classical [phi, grad_0..grad_{N_Y-1}] = {np.round(truth, 6)}")
+    _rows_dqa: list[dict] = []
+    _est_arr_dqa: list[np.ndarray] = []
+    _err_arr_dqa: list[np.ndarray] = []
     max_abs_dqa = 0.0
     for trial in range(trials):
         t_trial = _time.perf_counter()
@@ -1306,7 +1330,25 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
         print(f"\ntrial {trial} ({_time.perf_counter()-t_trial:.2f}s):")
         print(f"  DQA  [phi, grad_0..grad_{N_Y-1}] = {np.round(dqa_est, 6)}")
         print(f"  abs error per component           = {np.round(dqa_err, 6)}")
+
+        _est_arr_dqa.append(dqa_est.copy())
+        _err_arr_dqa.append(dqa_err.copy())
+        _rows_dqa.append(dict(
+            pipeline='dqa', trial=trial,
+            **{f'est_{i}': float(dqa_est[i]) for i in range(len(dqa_est))},
+            **{f'err_{i}': float(dqa_err[i]) for i in range(len(dqa_err))},
+            max_err=float(dqa_err.max()),
+            time_s=float(_time.perf_counter() - t_trial),
+        ))
+
     print(f"\nMAX absolute error across trials/components: {max_abs_dqa:.3e}")
+    if len(_est_arr_dqa) > 1:
+        _stk = np.stack(_est_arr_dqa, axis=0)
+        _estk = np.stack(_err_arr_dqa, axis=0)
+        print(f"  estimate  mean: {np.round(np.mean(_stk,  axis=0), 6)}")
+        print(f"  estimate   std: {np.round(np.std(_stk,   axis=0), 6)}")
+        print(f"  abs error mean: {np.round(np.mean(_estk, axis=0), 6)}")
+        print(f"  abs error  std: {np.round(np.std(_estk,  axis=0), 6)}")
     print(f"[Pure DQA] {_time.perf_counter() - t0:.3f}s")
 
     # --- DQA/MLQAE ---
@@ -1331,6 +1373,9 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
     t0 = _time.perf_counter()
     print("\nStep B (exact multi): MLQAE all components (exact phi + gradients)")
     print(f"  classical [phi, grad_0..grad_{N_Y-1}] = {np.round(truth, 6)}")
+    _rows_dqa_mlqae: list[dict] = []
+    _est_arr_dqa_mlqae: list[np.ndarray] = []
+    _err_arr_dqa_mlqae: list[np.ndarray] = []
     max_abs_exact_multi = 0.0
     for trial in range(trials):
         t_trial = _time.perf_counter()
@@ -1346,8 +1391,91 @@ def point_test(schedule: tuple[int, ...], shots: int, trials: int):
         print(f"\ntrial {trial} ({_time.perf_counter()-t_trial:.2f}s):")
         print(f"  exact-multi [phi, grad_0..grad_{N_Y-1}] = {np.round(est_exact, 6)}")
         print(f"  abs error per component                 = {np.round(abs_err_exact, 6)}")
+
+        _est_arr_dqa_mlqae.append(est_exact.copy())
+        _err_arr_dqa_mlqae.append(abs_err_exact.copy())
+        _rows_dqa_mlqae.append(dict(
+            pipeline='dqa_mlqae', trial=trial,
+            **{f'est_{i}': float(est_exact[i])     for i in range(len(est_exact))},
+            **{f'err_{i}': float(abs_err_exact[i]) for i in range(len(abs_err_exact))},
+            max_err=float(abs_err_exact.max()),
+            time_s=float(_time.perf_counter() - t_trial),
+        ))
+
     print(f"\nMAX absolute error across trials/components: {max_abs_exact_multi:.3e}")
+    if len(_est_arr_dqa_mlqae) > 1:
+        _stk = np.stack(_est_arr_dqa_mlqae, axis=0)
+        _estk = np.stack(_err_arr_dqa_mlqae, axis=0)
+        print(f"  estimate  mean: {np.round(np.mean(_stk,  axis=0), 6)}")
+        print(f"  estimate   std: {np.round(np.std(_stk,   axis=0), 6)}")
+        print(f"  abs error mean: {np.round(np.mean(_estk, axis=0), 6)}")
+        print(f"  abs error  std: {np.round(np.std(_estk,  axis=0), 6)}")
     print(f"[Step B (exact multi)] {_time.perf_counter()-t0:.3f}s")
+
+    # ── Save trial results to CSV ─────────────────────────────────────────────
+    import csv as _csv_mod
+    _comp_labels = ['phi'] + [f'grad_{j}' for j in range(N_Y)]
+    _fieldnames  = (
+        ['pipeline', 'trial']
+        + [f'{lbl}_est'   for lbl in _comp_labels]
+        + [f'{lbl}_truth' for lbl in _comp_labels]
+        + [f'{lbl}_err'   for lbl in _comp_labels]
+        + ['max_err', 'time_s']
+    )
+
+    def _remap_row(row: dict) -> dict:
+        out: dict = {'pipeline': row['pipeline'], 'trial': row['trial']}
+        for i, lbl in enumerate(_comp_labels):
+            out[f'{lbl}_est']   = row[f'est_{i}']
+            out[f'{lbl}_truth'] = float(truth[i])
+            out[f'{lbl}_err']   = row[f'err_{i}']
+        out['max_err'] = row['max_err']
+        out['time_s']  = row['time_s']
+        return out
+
+    def _summary_rows(pipeline_name: str,
+                      est_arrs: list,
+                      err_arrs: list) -> list:
+        if not est_arrs:
+            return []
+        stk_e = np.stack(est_arrs, axis=0)
+        stk_r = np.stack(err_arrs, axis=0)
+        rows = []
+        for stat, e_vals, r_vals in [
+            ('mean', np.mean(stk_e, axis=0), np.mean(stk_r, axis=0)),
+            ('std',  np.std(stk_e,  axis=0), np.std(stk_r,  axis=0)),
+            ('min',  np.min(stk_e,  axis=0), np.min(stk_r,  axis=0)),
+            ('max',  np.max(stk_e,  axis=0), np.max(stk_r,  axis=0)),
+        ]:
+            row: dict = {'pipeline': pipeline_name, 'trial': stat}
+            for i, lbl in enumerate(_comp_labels):
+                row[f'{lbl}_est']   = float(e_vals[i])
+                row[f'{lbl}_truth'] = float(truth[i])
+                row[f'{lbl}_err']   = float(r_vals[i])
+            row['max_err'] = float(np.max(r_vals))
+            row['time_s']  = float('nan')
+            rows.append(row)
+        return rows
+
+    _trial_rows = (
+        [_remap_row(r) for r in _rows_mlqae]
+        + [_remap_row(r) for r in _rows_dqa]
+        + [_remap_row(r) for r in _rows_dqa_mlqae]
+    )
+    _stat_rows = (
+        _summary_rows('mlqae',     _est_arr_mlqae,     _err_arr_mlqae)
+        + _summary_rows('dqa',       _est_arr_dqa,       _err_arr_dqa)
+        + _summary_rows('dqa_mlqae', _est_arr_dqa_mlqae, _err_arr_dqa_mlqae)
+    )
+    _all_csv_rows = _trial_rows + _stat_rows
+    if _all_csv_rows:
+        _csv_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'simple_ed_point_test_results.csv')
+        with open(_csv_path, 'w', newline='') as _f:
+            _w = _csv_mod.DictWriter(_f, fieldnames=_fieldnames)
+            _w.writeheader()
+            _w.writerows(_all_csv_rows)
+        print(f"\nPoint-test results saved to {_csv_path}")
 
     print(f"\n[TOTAL] {_time.perf_counter() - t0_total:.3f}s")
 
