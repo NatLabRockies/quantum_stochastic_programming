@@ -42,7 +42,7 @@ RUN_GROVER_IDENTITY_CHECKS = False
 
 N_X = 1
 C_X = [4.0]
-X0 = [7.0]
+X0 = [6.0]
 
 N_Y = 4
 D = 8
@@ -162,6 +162,31 @@ def build_oracle_angles(f_full: np.ndarray, f_min: float, f_max: float) -> np.nd
     g = np.clip((f_full - f_min) / span, 0.0, 1.0)
     theta = 2.0 * np.arcsin(np.sqrt(g))
     return theta.reshape(-1)
+
+
+def build_exact_oracle_thetas(norm: float) -> list[float]:
+    """Pre-compute exact oracle angles for all (y, xi) states with sum(y)==W_D.
+
+    addr = (y_int << N_Y) | xi_int using MSB-first bit convention:
+      y_int  bit b = (y_int  >> (N_Y-1-b)) & 1  -> y_reg[b]
+      xi_int bit b = (xi_int >> (N_Y-1-b)) & 1  -> xi_reg[b]
+
+    Returns a flat list of length 2^(2*N_Y) = 256.
+    norm must satisfy norm >= max possible total cost (e.g. W_D * C_R).
+    States with sum(y) != W_D (infeasible) get angle 0 (oracle doesn't rotate).
+    """
+    n_states = 1 << (2 * N_Y)
+    thetas = [0.0] * n_states
+    for y_int in range(1 << N_Y):
+        y = tuple((y_int >> (N_Y - 1 - b)) & 1 for b in range(N_Y))
+        if sum(y) != W_D:
+            continue
+        for xi_int in range(1 << N_Y):
+            xi = tuple((xi_int >> (N_Y - 1 - b)) & 1 for b in range(N_Y))
+            cost = _wind_scenario_cost(y, xi)
+            addr = (y_int << N_Y) | xi_int
+            thetas[addr] = 2.0 * math.asin(math.sqrt(min(cost / norm, 1.0)))
+    return thetas
 
 
 def classical_truth() -> tuple[float, np.ndarray]:
@@ -819,6 +844,110 @@ def _a_op_dagger(dicke_angles: list[float],
 
 
 # ---------------------------------------------------------------------------
+# Exact oracle (CUDA-Q port of Qiskit exact_oracle)
+# One 8-qubit-controlled RY per (y, xi) basis state: no angle accumulation.
+# Correct for any W_D.  Gate count O(2^(2*N_Y)) = 256 for N_Y=4.
+# addr = (y_int << N_Y) | xi_int, MSB-first convention.
+# ---------------------------------------------------------------------------
+@cudaq.kernel
+def exact_oracle_k0(oracle_thetas: list[float], y_reg: cudaq.qview,
+                    xi_reg: cudaq.qview, anc: cudaq.qubit):
+    """Exact oracle for phi (k=0): single 8-ctrl-RY per (y, xi) state.
+
+    Hardcoded for N_Y=4 (256 addresses).  oracle_thetas[addr] pre-computed as
+    2*arcsin(sqrt(Q(y,xi)/norm)) for sum(y)==W_D, 0 for infeasible states.
+    P(anc=1) = Q(y,xi)/norm exactly for any W_D; no sequential-angle bias.
+    """
+    for addr in range(1 << (2 * N_Y)):   # 256 iterations; unrolled at compile time
+        y_int  = addr >> N_Y
+        xi_int = addr & ((1 << N_Y) - 1)
+        # Wrap y: flip y_reg[b] where y_int bit b is 0 (MSB-first)
+        for b in range(N_Y):
+            if not ((y_int >> (N_Y - 1 - b)) & 1):
+                x(y_reg[b])
+        # Wrap xi
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi_reg[b])
+        # 8-qubit controlled RY: fires only when system == (y_int, xi_int)
+        cudaq.control(_ry_gate, [y_reg[0], y_reg[1], y_reg[2], y_reg[3],
+                                  xi_reg[0], xi_reg[1], xi_reg[2], xi_reg[3]],
+                      oracle_thetas[addr], anc)
+        # Uncompute xi wrap
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi_reg[b])
+        # Uncompute y wrap
+        for b in range(N_Y):
+            if not ((y_int >> (N_Y - 1 - b)) & 1):
+                x(y_reg[b])
+
+
+@cudaq.kernel
+def exact_oracle_k0_dagger(oracle_thetas: list[float], y_reg: cudaq.qview,
+                           xi_reg: cudaq.qview, anc: cudaq.qubit):
+    """Adjoint of exact_oracle_k0: identical structure with negated angles.
+
+    Blocks select orthogonal subspaces so they commute; adjoint = negate angles.
+    """
+    for addr in range(1 << (2 * N_Y)):
+        y_int  = addr >> N_Y
+        xi_int = addr & ((1 << N_Y) - 1)
+        for b in range(N_Y):
+            if not ((y_int >> (N_Y - 1 - b)) & 1):
+                x(y_reg[b])
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi_reg[b])
+        cudaq.control(_ry_gate, [y_reg[0], y_reg[1], y_reg[2], y_reg[3],
+                                  xi_reg[0], xi_reg[1], xi_reg[2], xi_reg[3]],
+                      -oracle_thetas[addr], anc)          # negated
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi_reg[b])
+        for b in range(N_Y):
+            if not ((y_int >> (N_Y - 1 - b)) & 1):
+                x(y_reg[b])
+
+
+@cudaq.kernel
+def _a_op_exact_k0(dicke_angles: list[float], c_y: list[float], c_r: float,
+                    cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                    n_y: int, exact_thetas: list[float],
+                    qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """A operator with exact oracle: DQA state prep + exact_oracle_k0.  Correct for any W_D."""
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+    dicke_state(n_y, w_d, dicke_angles, y)
+    pdf_init_uniform(xi)
+    for i in range(n_steps * 2):
+        if i % 2 == 0:
+            cost_operator(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer(thetas[i], y)
+    exact_oracle_k0(exact_thetas, y, xi, ancilla)
+
+
+@cudaq.kernel
+def _a_op_exact_k0_dagger(dicke_angles: list[float], c_y: list[float], c_r: float,
+                           cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                           n_y: int, exact_thetas: list[float],
+                           qubits: cudaq.qview, ancilla: cudaq.qubit):
+    """Adjoint of _a_op_exact_k0."""
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+    exact_oracle_k0_dagger(exact_thetas, y, xi, ancilla)
+    for ii in range(n_steps * 2):
+        i = n_steps * 2 - 1 - ii
+        if i % 2 == 0:
+            cost_operator_dagger(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer_dagger(thetas[i], y)
+    pdf_init_uniform(xi)
+    dicke_state_dagger(n_y, w_d, dicke_angles, y)
+
+
+# ---------------------------------------------------------------------------
 # Option B: multiplexed oracle — H on idx, then per-k oracle blocks
 # Hardcoded for N_Y=4, N_IDX_Q=3, N_USED_IDX=5.
 # Bit layout for wrap pattern (MSB first): k=0→000, k=1→001, k=2→010,
@@ -1078,6 +1207,54 @@ def dqa_mlqae_state_kernel(dicke_angles: list[float], c_y: list[float], c_r: flo
                       oracle_cy, oracle_cr, k, yx_reg, idx, anc)
 
 
+@cudaq.kernel
+def _apply_s0_yx(yx_reg: cudaq.qview, anc: cudaq.qubit):
+    """S_0 reflection about |0...0⟩ for 8-qubit yx_reg + ancilla (no idx register)."""
+    for q in yx_reg:
+        x(q)
+    x(anc)
+    cudaq.control(_z_gate, [yx_reg[0], yx_reg[1], yx_reg[2], yx_reg[3],
+                             yx_reg[4], yx_reg[5], yx_reg[6], yx_reg[7]], anc)
+    x(anc)
+    for q in yx_reg:
+        x(q)
+
+
+@cudaq.kernel
+def _apply_full_q_exact_k0(dicke_angles: list[float], c_y: list[float], c_r: float,
+                             cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                             n_y: int, exact_thetas: list[float],
+                             yx_reg: cudaq.qview, anc: cudaq.qubit):
+    """Grover iterate Q = S_chi(k=0) · A_exact† · S_0 · A_exact.
+
+    S_chi(k=0) = Z on ancilla (flips phase of |good⟩ = anc=1 states).
+    S_0 acts on yx_reg (8 qubits) + ancilla.
+    """
+    z(anc)                                       # S_chi for k=0
+    _a_op_exact_k0_dagger(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                           exact_thetas, yx_reg, anc)
+    _apply_s0_yx(yx_reg, anc)                    # S_0
+    _a_op_exact_k0(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                    exact_thetas, yx_reg, anc)
+
+
+@cudaq.kernel
+def dqa_mlqae_state_kernel_exact_k0(dicke_angles: list[float], c_y: list[float], c_r: float,
+                                      cost_norm: float, w_d: int, thetas: list[float],
+                                      n_steps: int, n_y: int, exact_thetas: list[float],
+                                      m_power: int):
+    """Prepare Q^m_power · A_exact |0⟩ for k=0 phi estimation (no idx register)."""
+    n_qubits = N_Q_Y + N_SCEN_Q + 1    # y + xi + ancilla
+    q = cudaq.qvector(n_qubits)
+    yx_reg = q[0 : N_Q_Y + N_SCEN_Q]
+    anc = q[N_Q_Y + N_SCEN_Q]
+    _a_op_exact_k0(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                    exact_thetas, yx_reg, anc)
+    for _ in range(m_power):
+        _apply_full_q_exact_k0(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                                 exact_thetas, yx_reg, anc)
+
+
 def dqa_p_good_exact(dicke_angles: list, c_y: list, c_r: float,
                      cost_norm: float, w_d: int, thetas: list, n_steps: int,
                      n_y: int, oracle_cy: list, oracle_cr: float,
@@ -1148,6 +1325,80 @@ def dqa_p_good_exact_multi(dicke_angles: list, c_y: list, c_r: float,
         if idx_int == k and anc_bit == 1:
             prob += p
     return float(prob)
+
+
+def dqa_p_good_exact_phi(dicke_angles: list, c_y: list, c_r: float,
+                          cost_norm: float, w_d: int, thetas: list, n_steps: int,
+                          n_y: int, exact_thetas: list, m_power: int) -> float:
+    """Exact P(anc==1) using the exact k=0 oracle.  No angle accumulation for any W_D."""
+    n_sys = N_Q_Y + N_SCEN_Q + 1   # 9 qubits; no idx register
+    sv = np.array(cudaq.get_state(
+        dqa_mlqae_state_kernel_exact_k0,
+        [float(v) for v in dicke_angles],
+        [float(v) for v in c_y],
+        float(c_r),
+        float(cost_norm),
+        int(w_d),
+        [float(v) for v in thetas],
+        int(n_steps),
+        int(n_y),
+        [float(v) for v in exact_thetas],
+        int(m_power),
+    ))
+    prob = 0.0
+    for i in range(1 << n_sys):
+        p = abs(sv[i]) ** 2
+        if p < 1e-14:
+            continue
+        b = format(i, f"0{n_sys}b")[::-1]
+        if int(b[n_sys - 1]) == 1:   # ancilla is last qubit
+            prob += p
+    return float(prob)
+
+
+def dqa_mlqae_estimate_exact_phi(dicke_angles: list, c_y: list, c_r: float,
+                                   cost_norm: float, w_d: int, thetas: list, n_steps: int,
+                                   n_y: int, exact_thetas: list, exact_norm: float,
+                                   schedule: Iterable[int] = (0, 1, 2, 4, 8, 16),
+                                   shots: int = 2000,
+                                   seed: int = 0) -> float:
+    """MLQAE estimate of E_DQA[Q(y,xi)] using the exact oracle.  Returns decoded phi.
+
+    Decode: P(anc=1) = E[Q/exact_norm], so phi_hat = exact_norm * a_hat^2.
+    exact_norm should be >= W_D * max_single_cost (e.g. W_D * C_R).
+    """
+    schedule = tuple(int(v) for v in schedule)
+    rng_local = np.random.default_rng(seed)
+
+    p_true = np.array([dqa_p_good_exact_phi(dicke_angles, c_y, c_r, cost_norm, w_d,
+                                              thetas, n_steps, n_y, exact_thetas, m_power)
+                       for m_power in schedule])
+    hits = np.round(p_true * shots).astype(int)
+
+    m_arr = np.asarray(schedule, dtype=float)
+    h_arr = hits.astype(float)
+    n_shots = float(shots)
+
+    def neg_ll_scalar(theta: float) -> float:
+        p = np.sin((2.0 * m_arr + 1.0) * theta) ** 2
+        p = np.clip(p, 1e-12, 1.0 - 1e-12)
+        return -float(np.sum(h_arr * np.log(p) + (n_shots - h_arr) * np.log(1.0 - p)))
+
+    m_max = max(schedule)
+    grid_size = max(4000, 200 * (2 * m_max + 1))
+    theta_grid = np.linspace(1e-6, np.pi / 2 - 1e-6, grid_size)
+    p_grid = np.sin(np.outer(2.0 * m_arr + 1.0, theta_grid)) ** 2
+    p_grid = np.clip(p_grid, 1e-12, 1.0 - 1e-12)
+    ll_grid = (h_arr[:, None] * np.log(p_grid) + (n_shots - h_arr)[:, None] * np.log(1.0 - p_grid)).sum(axis=0)
+    best_i = int(np.argmax(ll_grid))
+    res = minimize_scalar(
+        neg_ll_scalar,
+        bounds=(theta_grid[max(0, best_i - 1)], theta_grid[min(grid_size - 1, best_i + 1)]),
+        method="bounded",
+        options={"xatol": 1e-6},
+    )
+    a_hat = math.sin(float(res.x))
+    return exact_norm * (a_hat ** 2)   # P(anc=1) = E[Q]/exact_norm  =>  E[Q] = exact_norm*a_hat^2
 
 
 def dqa_mlqae_estimate(dicke_angles: list, c_y: list, c_r: float,
@@ -1418,6 +1669,29 @@ def main() -> None:
         print(f"  abs error per component               = {np.round(abs_err_dqa, 6)}")
     print(f"\nMAX absolute error across trials/components: {max_abs_dqa:.3e}")
     print(f"[Step B (DQA)] {_time.perf_counter() - t0:.3f}s")
+
+    # --- Exact oracle for phi (correct for any W_D, no angle accumulation) ---
+    t0 = _time.perf_counter()
+    exact_norm = float(W_D * C_R)   # upper bound: W_D turbines all on recourse
+    exact_thetas = build_exact_oracle_thetas(exact_norm)
+    print(f"\n[exact oracle build] {_time.perf_counter()-t0:.3f}s")
+    print(f"exact_norm={exact_norm:.2f}  (W_D={W_D} * C_R={C_R})")
+
+    t0 = _time.perf_counter()
+    print("\nStep B (exact phi, any W_D): E_DQA[Q(y,xi)] vs classical phi")
+    print(f"  classical phi = {truth[0]:.6f}")
+    for trial in range(args.trials):
+        t_trial = _time.perf_counter()
+        phi_exact = dqa_mlqae_estimate_exact_phi(
+            dicke_angles, C_Y_EFF, C_R, cost_norm_dqa, W_D,
+            thetas_dqa, n_steps_dqa, N_Y, exact_thetas, exact_norm,
+            schedule=schedule, shots=args.shots, seed=100 * trial,
+        )
+        abs_err = abs(phi_exact - truth[0])
+        print(f"\ntrial {trial} ({_time.perf_counter()-t_trial:.2f}s):")
+        print(f"  exact-oracle phi estimate = {phi_exact:.6f}")
+        print(f"  abs error (phi)           = {abs_err:.6f}")
+    print(f"[Step B (exact phi)] {_time.perf_counter() - t0:.3f}s")
 
     print(f"\n[TOTAL] {_time.perf_counter() - t0_total:.3f}s")
 
