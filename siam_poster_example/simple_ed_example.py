@@ -79,10 +79,10 @@ N_FULL = N_Q_Y + N_SCEN_Q + N_IDX_Q + 1  # + ancilla
 # Extend D_VALUES to sweep demand levels, e.g. list(range(6, 11))
 # D_VALUES    = [d]                               # extend to sweep, e.g. list(range(6, 11))
 # D_VALUES    = list(range(1,13))
-# D_VALUES    = list(np.arange(1.0, 12.5, 0.5))
-D_VALUES    = list(np.arange(7.0, 8.5, 1.0))
-# OPT_METHODS = ['bounded', 'COBYLA', 'Nelder-Mead', 'L-BFGS-B', 'BFGS']
-OPT_METHODS = ['COBYLA', 'L-BFGS-B']
+D_VALUES    = list(np.arange(1.0, 12.5, 0.5))
+# D_VALUES    = list(np.arange(7.0, 8.5, 1.0))
+OPT_METHODS = ['bounded', 'COBYLA', 'Nelder-Mead', 'L-BFGS-B', 'BFGS']
+# OPT_METHODS = ['COBYLA', 'L-BFGS-B']
 # bounded     — minimize_scalar with Brent (1-D, tolerates non-smooth objectives)
 # COBYLA      — derivative-free, handles inequality constraints directly
 # Nelder-Mead — derivative-free simplex (bounds enforced by clipping)
@@ -97,8 +97,8 @@ OPT_METHODS = ['COBYLA', 'L-BFGS-B']
 #   'cubic'    — global cubic fit    (least-squares) to all cached values + gradients
 #   'quartic'  — global quartic fit  (least-squares) to all cached values + gradients
 #   'sextic'   — global sextic fit   (least-squares) to all cached values + gradients
-# SWEEP_INTERP_MODES = ['linear', 'hermite', 'quartic']   # modes to compare in the sweep table
-SWEEP_INTERP_MODES = ['linear', 'hermite']
+SWEEP_INTERP_MODES = ['linear', 'hermite', 'parabola', 'cubic', 'quartic', 'sextic']   # modes to compare in the sweep table
+# SWEEP_INTERP_MODES = ['linear', 'hermite']
 
 
 
