@@ -1255,6 +1255,205 @@ def dqa_mlqae_state_kernel_exact_k0(dicke_angles: list[float], c_y: list[float],
                                  exact_thetas, yx_reg, anc)
 
 
+# ---------------------------------------------------------------------------
+# Exact multiplexed oracle: exact per-(y,xi) RY for k=0 + exact gradient
+# blocks for k=1..N_Y.  Correct for any W_D with no angle accumulation.
+# Requires extra parameter exact_thetas (256 pre-computed k=0 angles).
+# ---------------------------------------------------------------------------
+@cudaq.kernel
+def _a_op_exact_multi(dicke_angles: list[float], c_y: list[float], c_r: float,
+                       cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                       n_y: int, oracle_cy: list[float], oracle_cr: float,
+                       oracle_cy_hi: list[float], oracle_cy_lo: list[float],
+                       exact_thetas: list[float],
+                       qubits: cudaq.qview, idx: cudaq.qview, ancilla: cudaq.qubit):
+    """Multiplexed A operator with exact k=0 oracle: no angle accumulation for any W_D.
+
+    k=0: 256-iter loop of 11-ctrl-RY gates (idx + y + xi), exact for W_D>1.
+    k=1..4: same exact gradient blocks as _a_op_multi (already W_D-agnostic).
+    """
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+    dicke_state(n_y, w_d, dicke_angles, y)
+    pdf_init_uniform(xi)
+    for i in range(n_steps * 2):
+        if i % 2 == 0:
+            cost_operator(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer(thetas[i], y)
+    h(idx[0]); h(idx[1]); h(idx[2])
+    # k=0 (000): EXACT per-(y,xi) oracle — 11-qubit controlled RY, 256 iterations
+    x(idx[0]); x(idx[1]); x(idx[2])
+    for addr in range(1 << (2 * N_Y)):           # compile-time unrolled (256)
+        y_int  = addr >> N_Y
+        xi_int = addr & ((1 << N_Y) - 1)
+        for b in range(N_Y):
+            if not ((y_int  >> (N_Y - 1 - b)) & 1):
+                x(y[b])
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi[b])
+        cudaq.control(_ry_gate, [idx[0], idx[1], idx[2],
+                                  y[0], y[1], y[2], y[3],
+                                  xi[0], xi[1], xi[2], xi[3]],
+                      exact_thetas[addr], ancilla)
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi[b])
+        for b in range(N_Y):
+            if not ((y_int  >> (N_Y - 1 - b)) & 1):
+                x(y[b])
+    x(idx[0]); x(idx[1]); x(idx[2])
+    # k=1..4: exact gradient blocks (identical to _a_op_multi)
+    x(idx[0]); x(idx[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[0], xi[0]], oracle_cy_hi[0], ancilla)
+    x(y[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[0], xi[0]], oracle_cy_lo[0], ancilla)
+    x(y[0]); x(xi[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[0]], oracle_cr, ancilla)
+    x(xi[0]); x(idx[0]); x(idx[1])
+    x(idx[0]); x(idx[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[1], xi[1]], oracle_cy_hi[1], ancilla)
+    x(y[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[1], xi[1]], oracle_cy_lo[1], ancilla)
+    x(y[1]); x(xi[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[1]], oracle_cr, ancilla)
+    x(xi[1]); x(idx[0]); x(idx[2])
+    x(idx[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[2], xi[2]], oracle_cy_hi[2], ancilla)
+    x(y[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[2], xi[2]], oracle_cy_lo[2], ancilla)
+    x(y[2]); x(xi[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[2]], oracle_cr, ancilla)
+    x(xi[2]); x(idx[0])
+    x(idx[1]); x(idx[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[3], xi[3]], oracle_cy_hi[3], ancilla)
+    x(y[3])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[3], xi[3]], oracle_cy_lo[3], ancilla)
+    x(y[3]); x(xi[3])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[3]], oracle_cr, ancilla)
+    x(xi[3]); x(idx[1]); x(idx[2])
+
+
+@cudaq.kernel
+def _a_op_exact_multi_dagger(dicke_angles: list[float], c_y: list[float], c_r: float,
+                              cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                              n_y: int, oracle_cy: list[float], oracle_cr: float,
+                              oracle_cy_hi: list[float], oracle_cy_lo: list[float],
+                              exact_thetas: list[float],
+                              qubits: cudaq.qview, idx: cudaq.qview, ancilla: cudaq.qubit):
+    """Adjoint of _a_op_exact_multi: oracle†(k=4..1 same as _a_op_multi, k=0 exact)."""
+    y  = qubits[0:n_y]
+    xi = qubits[n_y:2*n_y]
+    # 1. Gradient daggers k=4..1 (identical to _a_op_multi_dagger)
+    x(idx[1]); x(idx[2])
+    x(xi[3])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[3]], -oracle_cr, ancilla)
+    x(xi[3]); x(y[3])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[3], xi[3]], -oracle_cy_lo[3], ancilla)
+    x(y[3])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[3], xi[3]], -oracle_cy_hi[3], ancilla)
+    x(idx[1]); x(idx[2])
+    x(idx[0])
+    x(xi[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[2]], -oracle_cr, ancilla)
+    x(xi[2]); x(y[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[2], xi[2]], -oracle_cy_lo[2], ancilla)
+    x(y[2])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[2], xi[2]], -oracle_cy_hi[2], ancilla)
+    x(idx[0])
+    x(idx[0]); x(idx[2])
+    x(xi[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[1]], -oracle_cr, ancilla)
+    x(xi[1]); x(y[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[1], xi[1]], -oracle_cy_lo[1], ancilla)
+    x(y[1])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[1], xi[1]], -oracle_cy_hi[1], ancilla)
+    x(idx[0]); x(idx[2])
+    x(idx[0]); x(idx[1])
+    x(xi[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], xi[0]], -oracle_cr, ancilla)
+    x(xi[0]); x(y[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[0], xi[0]], -oracle_cy_lo[0], ancilla)
+    x(y[0])
+    cudaq.control(_ry_gate, [idx[0], idx[1], idx[2], y[0], xi[0]], -oracle_cy_hi[0], ancilla)
+    x(idx[0]); x(idx[1])
+    # 2. k=0 dagger: exact 256-iter loop with negated angles (blocks commute)
+    x(idx[0]); x(idx[1]); x(idx[2])
+    for addr in range(1 << (2 * N_Y)):
+        y_int  = addr >> N_Y
+        xi_int = addr & ((1 << N_Y) - 1)
+        for b in range(N_Y):
+            if not ((y_int  >> (N_Y - 1 - b)) & 1):
+                x(y[b])
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi[b])
+        cudaq.control(_ry_gate, [idx[0], idx[1], idx[2],
+                                  y[0], y[1], y[2], y[3],
+                                  xi[0], xi[1], xi[2], xi[3]],
+                      -exact_thetas[addr], ancilla)      # negated
+        for b in range(N_Y):
+            if not ((xi_int >> (N_Y - 1 - b)) & 1):
+                x(xi[b])
+        for b in range(N_Y):
+            if not ((y_int  >> (N_Y - 1 - b)) & 1):
+                x(y[b])
+    x(idx[0]); x(idx[1]); x(idx[2])
+    # 3. H† = H on idx
+    h(idx[0]); h(idx[1]); h(idx[2])
+    # 4. DQA layers†
+    for ii in range(n_steps * 2):
+        i = n_steps * 2 - 1 - ii
+        if i % 2 == 0:
+            cost_operator_dagger(thetas[i], c_y, c_r, cost_norm, y, xi)
+        else:
+            mixer_dagger(thetas[i], y)
+    # 5. PDF†
+    pdf_init_uniform(xi)
+    # 6. Dicke†
+    dicke_state_dagger(n_y, w_d, dicke_angles, y)
+
+
+@cudaq.kernel
+def _apply_full_q_exact_multi(dicke_angles: list[float], c_y: list[float], c_r: float,
+                               cost_norm: float, w_d: int, thetas: list[float], n_steps: int,
+                               n_y: int, oracle_cy: list[float], oracle_cr: float,
+                               oracle_cy_hi: list[float], oracle_cy_lo: list[float],
+                               exact_thetas: list[float],
+                               k: int, yx_reg: cudaq.qview, idx: cudaq.qview, anc: cudaq.qubit):
+    """Grover iterate using _a_op_exact_multi."""
+    _apply_s_chi(k, idx, anc)
+    _a_op_exact_multi_dagger(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                              oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo,
+                              exact_thetas, yx_reg, idx, anc)
+    _apply_s0_full(yx_reg, idx, anc)
+    _a_op_exact_multi(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                       oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo,
+                       exact_thetas, yx_reg, idx, anc)
+
+
+@cudaq.kernel
+def dqa_mlqae_state_kernel_exact_multi(dicke_angles: list[float], c_y: list[float], c_r: float,
+                                         cost_norm: float, w_d: int, thetas: list[float],
+                                         n_steps: int, n_y: int,
+                                         oracle_cy: list[float], oracle_cr: float,
+                                         oracle_cy_hi: list[float], oracle_cy_lo: list[float],
+                                         exact_thetas: list[float], k: int, m_power: int):
+    """Prepare Q^m_power · A_exact_multi |0⟩ — exact phi and gradients for any W_D."""
+    q = cudaq.qvector(N_FULL)
+    yx_reg = q[0 : N_Q_Y + N_SCEN_Q]
+    idx = q[N_Q_Y + N_SCEN_Q : N_Q_Y + N_SCEN_Q + N_IDX_Q]
+    anc = q[N_FULL - 1]
+    _a_op_exact_multi(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                       oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo,
+                       exact_thetas, yx_reg, idx, anc)
+    for _ in range(m_power):
+        _apply_full_q_exact_multi(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                                    oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo,
+                                    exact_thetas, k, yx_reg, idx, anc)
+
+
 def dqa_p_good_exact(dicke_angles: list, c_y: list, c_r: float,
                      cost_norm: float, w_d: int, thetas: list, n_steps: int,
                      n_y: int, oracle_cy: list, oracle_cr: float,
@@ -1399,6 +1598,126 @@ def dqa_mlqae_estimate_exact_phi(dicke_angles: list, c_y: list, c_r: float,
     )
     a_hat = math.sin(float(res.x))
     return exact_norm * (a_hat ** 2)   # P(anc=1) = E[Q]/exact_norm  =>  E[Q] = exact_norm*a_hat^2
+
+
+def dqa_p_good_exact_full(dicke_angles: list, c_y: list, c_r: float,
+                           cost_norm: float, w_d: int, thetas: list, n_steps: int,
+                           n_y: int, oracle_cy: list, oracle_cr: float,
+                           oracle_cy_hi: list, oracle_cy_lo: list,
+                           exact_thetas: list, k: int, m_power: int) -> float:
+    """P(idx==k, anc==1) using dqa_mlqae_state_kernel_exact_multi (exact for any W_D)."""
+    sv = np.array(cudaq.get_state(
+        dqa_mlqae_state_kernel_exact_multi,
+        [float(v) for v in dicke_angles],
+        [float(v) for v in c_y],
+        float(c_r),
+        float(cost_norm),
+        int(w_d),
+        [float(v) for v in thetas],
+        int(n_steps),
+        int(n_y),
+        [float(v) for v in oracle_cy],
+        float(oracle_cr),
+        [float(v) for v in oracle_cy_hi],
+        [float(v) for v in oracle_cy_lo],
+        [float(v) for v in exact_thetas],
+        int(k),
+        int(m_power),
+    ))
+    prob = 0.0
+    idx_start = N_Q_Y + N_SCEN_Q
+    for i in range(1 << N_FULL):
+        p = abs(sv[i]) ** 2
+        if p < 1e-14:
+            continue
+        b = format(i, f"0{N_FULL}b")[::-1]
+        if int(b[idx_start : idx_start + N_IDX_Q], 2) == k and int(b[N_FULL - 1]) == 1:
+            prob += p
+    return float(prob)
+
+
+def dqa_mlqae_estimate_exact_full(dicke_angles: list, c_y: list, c_r: float,
+                                    cost_norm: float, w_d: int, thetas: list, n_steps: int,
+                                    n_y: int, oracle_cy: list, oracle_cr: float,
+                                    oracle_cy_hi: list, oracle_cy_lo: list,
+                                    exact_thetas: list,
+                                    k: int,
+                                    schedule: Iterable[int] = (0, 1, 2, 4, 8, 16),
+                                    shots: int = 2000,
+                                    seed: int = 0) -> tuple[float, float]:
+    """MLQAE estimate using the exact multiplexed kernel (all k, any W_D)."""
+    schedule = tuple(int(v) for v in schedule)
+    rng_local = np.random.default_rng(seed)
+    p_true = np.array([dqa_p_good_exact_full(
+        dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+        oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo, exact_thetas, k, m_power)
+        for m_power in schedule])
+    hits = np.round(p_true * shots).astype(int)
+    m_arr = np.asarray(schedule, dtype=float)
+    h_arr = hits.astype(float)
+    n_shots = float(shots)
+    def neg_ll_scalar(theta: float) -> float:
+        p = np.sin((2.0 * m_arr + 1.0) * theta) ** 2
+        p = np.clip(p, 1e-12, 1.0 - 1e-12)
+        return -float(np.sum(h_arr * np.log(p) + (n_shots - h_arr) * np.log(1.0 - p)))
+    m_max = max(schedule)
+    grid_size = max(4000, 200 * (2 * m_max + 1))
+    theta_grid = np.linspace(1e-6, np.pi / 2 - 1e-6, grid_size)
+    p_grid = np.sin(np.outer(2.0 * m_arr + 1.0, theta_grid)) ** 2
+    p_grid = np.clip(p_grid, 1e-12, 1.0 - 1e-12)
+    ll_grid = (h_arr[:, None] * np.log(p_grid) + (n_shots - h_arr)[:, None] * np.log(1.0 - p_grid)).sum(axis=0)
+    best_i = int(np.argmax(ll_grid))
+    res = minimize_scalar(
+        neg_ll_scalar,
+        bounds=(theta_grid[max(0, best_i - 1)], theta_grid[min(grid_size - 1, best_i + 1)]),
+        method="bounded",
+        options={"xatol": 1e-6},
+    )
+    return float(res.x), float(np.sin(res.x))
+
+
+def quantum_expectations_dqa_mlqae_exact(dicke_angles: list, c_y: list, c_r: float,
+                                          cost_norm: float, w_d: int, thetas: list, n_steps: int,
+                                          n_y: int, oracle_cy: list, oracle_cr: float,
+                                          oracle_cy_hi: list, oracle_cy_lo: list,
+                                          exact_thetas: list,
+                                          f_min: float, f_max: float,
+                                          schedule: Iterable[int],
+                                          shots: int,
+                                          seed_base: int = 0) -> np.ndarray:
+    """Decode exact-multi MLQAE estimates for k=0..N_USED_IDX-1 back to f-units."""
+    span = f_max - f_min if f_max > f_min else 1.0
+    out = np.zeros(N_USED_IDX)
+    for k in range(N_USED_IDX):
+        _, a_hat = dqa_mlqae_estimate_exact_full(
+            dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+            oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo, exact_thetas, k,
+            schedule=schedule, shots=shots, seed=seed_base + k,
+        )
+        out[k] = f_min + span * N_IDX * (a_hat ** 2)
+    return out
+
+
+def dqa_check_sin_squared_identity_exact(dicke_angles: list, c_y: list, c_r: float,
+                                          cost_norm: float, w_d: int, thetas: list,
+                                          n_steps: int, n_y: int,
+                                          oracle_cy: list, oracle_cr: float,
+                                          oracle_cy_hi: list, oracle_cy_lo: list,
+                                          exact_thetas: list, k: int,
+                                          schedule: Iterable[int]) -> float:
+    """Sin² identity check using the exact multiplexed kernel (all k non-trivial)."""
+    a0 = math.sqrt(max(0.0, min(1.0, dqa_p_good_exact_full(
+        dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+        oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo, exact_thetas, k, 0))))
+    theta0 = math.asin(a0)
+    err = 0.0
+    for m_power in schedule:
+        pred = math.sin((2 * m_power + 1) * theta0) ** 2
+        meas = dqa_p_good_exact_full(
+            dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+            oracle_cy, oracle_cr, oracle_cy_hi, oracle_cy_lo, exact_thetas, k, m_power)
+        err = max(err, abs(pred - meas))
+    return err
 
 
 def dqa_mlqae_estimate(dicke_angles: list, c_y: list, c_r: float,
@@ -1692,6 +2011,60 @@ def main() -> None:
         print(f"  exact-oracle phi estimate = {phi_exact:.6f}")
         print(f"  abs error (phi)           = {abs_err:.6f}")
     print(f"[Step B (exact phi)] {_time.perf_counter() - t0:.3f}s")
+
+    # --- Exact multiplexed oracle: exact phi AND gradients for any W_D ---
+    # Uses the same exact_norm/exact_thetas already built above.
+    # Re-computes oracle_cy/cr/hi/lo with exact_norm for uniform decode.
+    t0 = _time.perf_counter()
+    oracle_cy_exact  = [2.0 * math.asin(math.sqrt(min(c / exact_norm, 1.0))) for c in C_Y_EFF]
+    oracle_cr_exact  = 2.0 * math.asin(math.sqrt(min(C_R / exact_norm, 1.0)))
+    oracle_cy_hi_exact = [2.0 * math.asin(math.sqrt(min((C_Y[j][0] + 2.0*C_Y[j][1]) / exact_norm, 1.0)))
+                          for j in range(N_Y)]
+    oracle_cy_lo_exact = [2.0 * math.asin(math.sqrt(min(C_Y[j][0] / exact_norm, 1.0)))
+                          for j in range(N_Y)]
+    # Decode: out[k] = exact_norm * N_IDX * a_hat^2  for all k
+    f_min_exact_multi = 0.0
+    f_max_exact_multi = exact_norm
+    print(f"[exact multi setup] {_time.perf_counter()-t0:.3f}s")
+
+    print("\n" + "=" * 60)
+    print("Exact multiplexed oracle (exact phi + gradients, any W_D)")
+    print(f"exact_norm={exact_norm:.2f} | oracle_cr_exact={oracle_cr_exact:.4f}")
+
+    if RUN_GROVER_IDENTITY_CHECKS:
+        t0 = _time.perf_counter()
+        print("\nStep A (exact multi): Grover-power identity checks (all k)")
+        for k in range(N_USED_IDX):
+            t_k = _time.perf_counter()
+            err = dqa_check_sin_squared_identity_exact(
+                dicke_angles, C_Y_EFF, C_R, cost_norm_dqa, W_D,
+                thetas_dqa, n_steps_dqa, N_Y,
+                oracle_cy_exact, oracle_cr_exact, oracle_cy_hi_exact, oracle_cy_lo_exact,
+                exact_thetas, k, schedule)
+            label = "phi" if k == 0 else f"grad[{k-1}]"
+            print(f"  k={k} ({label}): max |P_m - sin^2((2m+1)theta)| = {err:.3e}  ({_time.perf_counter()-t_k:.2f}s)")
+        print(f"[Step A (exact multi)] {_time.perf_counter()-t0:.3f}s")
+
+    t0 = _time.perf_counter()
+    print("\nStep B (exact multi): MLQAE all components (exact phi + gradients)")
+    print(f"  classical [phi, grad_0..grad_{N_Y-1}] = {np.round(truth, 6)}")
+    max_abs_exact_multi = 0.0
+    for trial in range(args.trials):
+        t_trial = _time.perf_counter()
+        est_exact = quantum_expectations_dqa_mlqae_exact(
+            dicke_angles, C_Y_EFF, C_R, cost_norm_dqa, W_D,
+            thetas_dqa, n_steps_dqa, N_Y,
+            oracle_cy_exact, oracle_cr_exact, oracle_cy_hi_exact, oracle_cy_lo_exact,
+            exact_thetas, f_min_exact_multi, f_max_exact_multi,
+            schedule=schedule, shots=args.shots, seed_base=100 * trial,
+        )
+        abs_err_exact = np.abs(est_exact - truth)
+        max_abs_exact_multi = max(max_abs_exact_multi, float(abs_err_exact.max()))
+        print(f"\ntrial {trial} ({_time.perf_counter()-t_trial:.2f}s):")
+        print(f"  exact-multi [phi, grad_0..grad_{N_Y-1}] = {np.round(est_exact, 6)}")
+        print(f"  abs error per component                 = {np.round(abs_err_exact, 6)}")
+    print(f"\nMAX absolute error across trials/components: {max_abs_exact_multi:.3e}")
+    print(f"[Step B (exact multi)] {_time.perf_counter()-t0:.3f}s")
 
     print(f"\n[TOTAL] {_time.perf_counter() - t0_total:.3f}s")
 
