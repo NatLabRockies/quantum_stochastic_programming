@@ -15,6 +15,8 @@ import CSV
 import DataFrames
 import Random
 
+using Plots
+
 function build_model(
     nx::Int,
     cx::AbstractVecOrMat,
@@ -70,22 +72,96 @@ function build_model(
 
 end
 
+"""
+    second_stage_surface(demand, x_values, nx, cx, ny, cy, cr, ns, xi; optimizer, x_step)
+
+For a fixed `demand`, sweep `x` over `x_values`, fix the first-stage variable at
+each value, optimise the second-stage (y) variables, and return a DataFrame with
+columns `x`, `first_stage`, `second_stage`, and `obj`.
+
+Fixing x is achieved by passing `xlb = xub = [x_val, ...]` to `build_model`.
+"""
+function second_stage_surface(
+    demand::Real,
+    x_values::AbstractVector,
+    nx::Int,
+    cx::AbstractVecOrMat,
+    ny::Int,
+    cy::AbstractVecOrMat,
+    cr::Real,
+    ns::Int,
+    xi::AbstractMatrix;
+    optimizer=nothing,
+)
+    rows = DataFrames.DataFrame(
+        :x => Float64[],
+        :first_stage => Float64[],
+        :second_stage => Float64[],
+        :obj => Float64[],
+        :status => String[],
+    )
+
+    for x_val in x_values
+        xlb_fixed = fill(x_val, nx)
+        xub_fixed = fill(x_val, nx)
+        m = build_model(nx, cx, xlb_fixed, xub_fixed, ny, cy, cr, ns, xi, demand;
+            optimizer=optimizer)
+        JuMP.fix.(m[:x], x_val; force=true)
+        JuMP.optimize!(m)
+        term = string(JuMP.termination_status(m))
+        if JuMP.has_values(m)
+            fs = JuMP.value(m[:obj_first_stage])
+            ss = JuMP.value(m[:obj_second_stage])
+            obj = JuMP.objective_value(m)
+        else
+            fs = ss = obj = NaN
+        end
+        push!(rows, (x_val, fs, ss, obj, term))
+    end
+
+    return rows
+end
+
+function plot_second_stage_surface(
+    demand::Real,
+    x_values::AbstractVector,
+    nx::Int,
+    cx::AbstractVecOrMat,
+    ny::Int,
+    cy::AbstractVecOrMat,
+    cr::Real,
+    ns::Int,
+    xi::AbstractMatrix;
+    optimizer=nothing,
+)
+    df = second_stage_surface(demand, x_values, nx, cx, ny, cy, cr, ns, xi;
+        optimizer=optimizer)
+
+    p = plot(df.x, df.second_stage, marker=:circle, label="Second-stage \$\\phi(x)\$",
+        xlabel="Gas commitment \$x\$", ylabel="Cost",
+        title="Second-stage surface (demand = $demand)")
+    plot!(p, df.x, df.obj, marker=:square, linestyle=:dash, label="Total \$o(x)\$")
+    display(p)
+
+    return df, p
+end
+
 function main()
 
     # d = 8
     demand_values = 1:12
 
     cx = [
-        4.0 1e-2;
+        4.0 0.0;
         # 5.0 1e-2;
     ]
     nx = size(cx, 1)
     xlb = zeros(nx)
     # xub = fill(6.0, nx)
-    xub = fill(12.0, nx)
+    xub = fill(Inf, nx)
 
     ny = 4
-    cy1 = range(0.1, 1.0, ny)
+    cy1 = range(2.0, 3.0, ny)
     cy2 = fill(1e-3, ny)
     cy = hcat(cy1, cy2)
 
@@ -110,15 +186,23 @@ function main()
     #### MAiNGO ####
     # solver = JuMP.optimizer_with_attributes(MAiNGO.Optimizer, "epsilonA"=> 1e-8)
 
+    x_vals = 4.0:1.0:8.0   # feasible range = [d-ny, d] = [4, 8]
+    df_surf, p_surf = plot_second_stage_surface(8.0,
+        x_vals, nx, cx,
+        ny, cy, cr,
+        ns, xi;
+        optimizer=solver)
+    png(p_surf, joinpath(@__DIR__, "objective_surface_d8"))
+
     results = DataFrames.DataFrame(
-        :demand=>Int[],
+        :demand=>Float64[],
         :status=>String[],
         :obj=>Float64[],
         :first_stage=>Float64[],
         :second_stage=>Float64[],
         :max_violation=>Float64[],
         :n_fractional=>Int[],
-        :xsol=>String[],
+        :xsol=>Float64[],
         # :xsol => Vector{Vector{Float64}},
     )
 
@@ -154,13 +238,17 @@ function main()
             JuMP.value(m[:obj_second_stage]),
             max_viol,
             sum(idx),
-            string(round.(xsol)),
+            # string(round.(xsol)),
+            round(xsol[1]),
         ))
 
     end
 
     display(results)
-    CSV.write("poster_example_jump_results.csv", results)
+    CSV.write(joinpath(@__DIR__, "poster_example_jump_results.csv"), results)
+
+    display(df_surf)
+    CSV.write(joinpath(@__DIR__, "objective_surface_d8.csv"), df_surf)
 
     return
 

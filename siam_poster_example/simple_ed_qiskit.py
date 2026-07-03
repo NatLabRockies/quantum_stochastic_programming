@@ -32,7 +32,7 @@ m_qpe    = 5         # QPE readout qubits; estimation error ~ π·norm/2^m_qpe
 # Fixed first-stage parameters
 n_x  = 1
 c_x  = [4.0]
-x0   = [6.0]   # first-stage gas commitment
+x0   = [7.0]   # first-stage gas commitment
 # n_x  = 2
 # c_x  = [4., 5.]
 # x0   = [5., 1.]
@@ -41,12 +41,12 @@ x0   = [6.0]   # first-stage gas commitment
 n_y    = 4         # number of wind turbine qubits
 n_xi   = n_y
 d      = 8
-c_y    = list(np.linspace(0.1, 1.0, n_y))
+c_y    = list(np.linspace(2.0, 3.0, n_y))
 # c_y    = list(np.linspace(0.1, 1.0, n_y) + 1e-3)
 c_r    = 10.0
 
 # Derived quantities
-timesteps = max(10, n_y * n_y)
+timesteps = max(64, n_y * n_y)
 w_d       = int(d - sum(x0))     # wind demand
 norm      = w_d * c_r            # QAE amplitude normalisation
 cost_norm = w_d * c_r / n_y     # DQA cost operator normalisation
