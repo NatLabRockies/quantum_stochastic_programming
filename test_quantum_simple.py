@@ -111,7 +111,7 @@ else:
 print("="*70)
 
 # === SAVE RESULTS ===
-output_file = '/home/ssavadat/quantum_stochastic_programming-1/test_results.txt'
+output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_results.txt')
 try:
     with open(output_file, 'w') as f:
         f.write("QUANTUM STOCHASTIC OPTIMIZATION — RESULTS\n")

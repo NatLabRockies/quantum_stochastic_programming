@@ -1,11 +1,11 @@
 """
 Noise study: DQA accuracy (ideal vs depolarizing) for n_y in {4, 6, 8, 10}.
 
-Mirrors cuda_q_script.py exactly:
+Mirrors ``experiments/cuda_q_script.py`` exactly:
   c_y        = np.linspace(0.1, 1.0, n_y)
   w_d        = n_y - 2  (x0=[2], d=n_y)
   timesteps  = 20     (40 DQA parameters, fixed for all n_y)
-  theta0     = linear ramp (same formula as cuda_q_script.py, 20 steps)
+  theta0     = linear ramp (same formula as ``experiments/cuda_q_script.py``, 20 steps)
   USE_COBYLA = False     (linear ramp without optimisation)
   NOTE: timesteps=20 so all system sizes have equal DQA expressivity.
         With timesteps=n_y, small systems had too few steps and lack
@@ -47,7 +47,7 @@ N_SHOTS  = 2048            # shots for noisy sampling evaluation (constraint-awa
 noise_model = build_depolarizing_noise_model(p1=P1, p2=P2)
 print(f'Noise model    : p1={P1}, p2={P2}, n_shots={N_SHOTS}\n')
 
-USE_COBYLA = False   # False = linear ramp (matches cuda_q_script.py default)
+USE_COBYLA = False   # False = linear ramp (matches the CUDA-Q script default)
 
 # ── PROBLEM CONFIGS ──────────────────────────────────────────────────────────
 # c_y = linspace(0.1, 1.0, n_y), x0=[2], w_d=n_y-2
@@ -75,9 +75,9 @@ for ny in N_Y_LIST:
     print(f'  n_y={ny:2d}  w_d={w_d}  cost_norm={cost_norm:.4f}  '
           f'#params={len(theta0)}  c_y={[round(c,3) for c in c_y]}')
 
-# ── CLASSICAL REFERENCE (matches cuda_q_script.py) ──────────────────────────
+# ── CLASSICAL REFERENCE (matches the CUDA-Q script) ─────────────────────────
 # Uses BinaryNestedOptimizer.brute_force_wind_demand_expectation_values(), the
-# same source of truth as cuda_q_script.py.
+# same source of truth as the CUDA-Q script.
 print('\n── Classical reference (BinaryNestedOptimizer) ──')
 classical_phi = {}
 for ny, cfg in CONFIGS.items():
@@ -87,14 +87,14 @@ for ny, cfg in CONFIGS.items():
     classical_phi[ny] = exp_vals[cfg['w_d']]
     print(f'  n_y={ny:2d}  w_d={cfg["w_d"]}  φ_classical={classical_phi[ny]:.4f}')
 
-# ── DQA ANGLES: linear ramp or COBYLA (matches cuda_q_script.py) ─────────────
+# ── DQA ANGLES: linear ramp or COBYLA (matches the CUDA-Q script) ───────────
 # Reference default: USE_COBYLA=False — just the linear ramp.
 # When USE_COBYLA=True, uses estimate_expected_value_sv(Theta, w_d) exactly
 # as cuda_q_script.py does (not observe — that gives different semantics).
 if USE_COBYLA:
     print('\n── COBYLA optimisation using estimate_expected_value_sv ──')
 else:
-    print('\n── Using linear ramp (USE_COBYLA=False, matching cuda_q_script.py) ──')
+    print('\n── Using linear ramp (USE_COBYLA=False, matching the CUDA-Q script) ──')
 
 optimized_thetas = {}
 for ny, cfg in CONFIGS.items():
@@ -125,7 +125,7 @@ for ny, cfg in CONFIGS.items():
 #        cudaq.observe() with the Pauli Hamiltonian.  Confirmed identical to
 #        sv for noiseless circuits (no off-constraint states in ideal circuit).
 # Noisy: sample_ansatz(noise_model=...) + shortfall-penalty post-processing
-#        matching cuda_q_script.py:
+#        matching the CUDA-Q script:
 #          true_output = y AND xi
 #          cost = dot(c_y, true_output) + max(0, w_d - sum(true_output)) * c_r
 #        This is the correct cost: includes SHORTFALL PENALTY for states where
@@ -147,7 +147,7 @@ for ny, thetas in optimized_thetas.items():
     results_ideal[ny] = phi_i
 
     # Noisy: sample_ansatz with noise_model, then post-process with the correct
-    # cost formula from cuda_q_script.py (includes shortfall penalty for |y|<w_d,
+    # cost formula from the CUDA-Q script (includes shortfall penalty for |y|<w_d,
     # unlike _wind_scenario_cost which does not).
     #   true_output[j] = y[j] AND xi[j]   (turbine produces only if on AND wind)
     #   cost = sum(c_y*true_output) + max(0, w_d - sum(true_output)) * c_r

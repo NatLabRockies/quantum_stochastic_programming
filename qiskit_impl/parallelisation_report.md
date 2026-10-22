@@ -226,7 +226,7 @@ WRAPPER=$IMPL/run_mgpu.sh
 
 # Quick GHZ smoke test (32 qubits, 2 GPUs on 1 node)
 srun --jobid=$JOBID -N 1 --ntasks=2 --gpus-per-node=2 \
-    $WRAPPER $IMPL/test_mgpu.py mgpu
+    $WRAPPER $IMPL/run_mgpu_smoke.py mgpu
 
 # Full DQA benchmark — noiseless n_y=16,17,18 across 8 GPUs (2 nodes × 4 GPUs)
 srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \

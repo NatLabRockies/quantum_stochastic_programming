@@ -100,8 +100,8 @@ class TestGetSimulator:
         except Exception as e:
             pytest.skip(f"GPU not available: {e}")
 
-    def test_tensor_network_method(self):
-        sim = _get_simulator(method='tensor_network', shots_mode=False)
+    def test_matrix_product_state_method(self):
+        sim = _get_simulator(method='matrix_product_state', shots_mode=False)
         assert isinstance(sim, AerSimulator)
 
 

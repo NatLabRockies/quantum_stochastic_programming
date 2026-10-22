@@ -53,7 +53,8 @@ import matplotlib.pyplot as plt
 # Add the qiskit/aer-gpu venv site-packages so the Jupyter kernel (which starts
 # without 'module load qiskit') can find qiskit, qiskit_aer, cudaq, etc.
 _QISKIT_SP = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qiskit_impl')
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
 # _QISKIT_IMPL = '/projects/hpcapps/nsawant/quantum_stochastic_programming/qiskit_impl'
 # _QISKIT_IMPL = '/projects/msoc/jmaack/quantum_stochastic_programming/qiskit_impl'
 
@@ -483,5 +484,4 @@ plt.show()
 # - Error relative to classical brute-force optimum is driven by finite DQA ansatz depth (`p=1`), not backend noise.
 # - Wall time: aer-gpu QAE (4096 shots) ≈ 3.8 s; cuda-q QAE ≈ 0.08 s (direct amplitude estimation, no sampling loop).
 # 
-
 

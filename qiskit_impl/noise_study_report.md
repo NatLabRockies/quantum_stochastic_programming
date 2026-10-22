@@ -31,7 +31,7 @@ $$
 Q(y,\xi) = \sum_{j=1}^{n_y} \left[ c_y^{(j)}\, y_j\, \xi_j + c_r\, y_j\,(1-\xi_j) \right]
 $$
 
-### 2.1 Parameters (identical to `cuda_q_script.py`)
+### 2.1 Parameters (identical to `experiments/cuda_q_script.py`)
 
 | Symbol | Value / formula | Description |
 |--------|-----------------|-------------|
@@ -56,7 +56,7 @@ $$
 ### 2.3 Classical reference
 
 Computed via `BinaryNestedOptimizer.brute_force_wind_demand_expectation_values()`
-— identical to the classical baseline in `cuda_q_script.py`.  
+— identical to the classical baseline in `experiments/cuda_q_script.py`.
 Enumerates all $2^{n_y}$ scenarios and all $\binom{n_y}{w_d}$ feasible $y$
 vectors for each scenario; exact to floating-point precision.
 
@@ -169,7 +169,7 @@ noiseless circuits; used because it avoids the $O(2^{2n_y})$ Python loop.
 
 **Noisy evaluation:** `sample_ansatz(noise_model=..., shots=N_\text{shots})`
 followed by the **correct shortfall-penalty cost formula** (matching
-`cuda_q_script.py`):
+`experiments/cuda_q_script.py`):
 
 $$
 Q_\text{noisy}(y, \xi) = \sum_j c_y^{(j)} y_j \xi_j
@@ -278,7 +278,7 @@ bitstrings with few turbines committed appear artificially cheap, causing
 $\phi_\text{noisy} < \phi_\text{ideal}$ for deep circuits.
 
 This study uses the correct formula directly in post-processing, matching
-`cuda_q_script.py`. The underlying `cudaq_impl.py` bug is tracked separately.
+`experiments/cuda_q_script.py`. The underlying `cudaq_impl.py` bug is tracked separately.
 
 ---
 

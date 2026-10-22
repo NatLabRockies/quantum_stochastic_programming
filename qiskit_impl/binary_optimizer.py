@@ -61,7 +61,7 @@
 #   For the full QAE circuit (n_system + m_qpe qubits, deep), cuTensorNet's
 #   tensor network contraction can simulate circuits too deep for dense
 #   statevector methods.  Switch:
-#     simulator = AerSimulator(method='tensor_network', device='GPU')
+#     simulator = AerSimulator(method='matrix_product_state', device='GPU')
 #   This requires circuits with low entanglement entropy (MPS-friendly).
 #   The DQA circuit has local interactions (CP gates, SWAP pairs) which
 #   are naturally MPS-friendly -- this is worth benchmarking.
@@ -137,7 +137,7 @@ def _get_simulator(method: str = 'statevector', shots_mode: bool = False,
     """Return an AerSimulator targeting GPU if available, else CPU.
 
     Args:
-        method: Aer simulation method ('statevector' or 'tensor_network').
+        method: Aer simulation method ('statevector' or 'matrix_product_state').
         shots_mode: If True, add max_parallel_shots=0 for GPU shot parallelism.
         n_qubits: Circuit width hint.  When >= 20 on GPU, enables cuStateVec
                   (NVIDIA cuQuantum) for large-statevector acceleration.
@@ -1190,7 +1190,7 @@ class BinaryNestedOptimizer:
         Returns:
             List of QPE outcome dicts ``{b_bitstring: probability}``.
         """
-        method = 'tensor_network' if m >= 7 else 'statevector'
+        method = 'matrix_product_state' if m >= 7 else 'statevector'
         simulator = _get_simulator(method=method, shots_mode=(num_meas is not None))
 
         if num_meas is None:

@@ -130,6 +130,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
@@ -180,5 +181,6 @@ site/
 
 *.png
 *.csv
+test_results.txt
 
 Manifest.toml

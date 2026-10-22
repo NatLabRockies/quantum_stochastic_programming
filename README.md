@@ -66,10 +66,25 @@ quantum_stochastic_programming/
 │   ├── simple_UC_model.ipynb          # Minimal UC example
 │   └── SED_classical_solution.ipynb   # Classical reference solution
 │
-├── cuda-q_mac_install_notes.md        # CUDA-Q environment notes
+├── docs/                               # MkDocs documentation
+├── experiments/                        # Standalone benchmark sweeps
+├── publications/
+│   ├── figures/                        # Figures used in papers and posters
+│   └── hackathon_poster/               # Poster source and PDF
+│   └── siam_poster_example/            # SIAM poster example and supporting experiments
 ├── twoStageStocOptQ.code-workspace    # VS Code multi-root workspace
 └── README.md
 ```
+
+Local virtual environments are not tracked; recreate one for your system as needed.
+
+Run the standalone benchmark scripts from the repository root, for example
+`python experiments/qiskit_sweep.py`. They use `qiskit_impl/` for imports and
+write generated outputs there.
+
+The SIAM poster's Julia environment lives in
+`publications/siam_poster_example/`. Activate it from that directory with
+`julia --project=.`, or run `Pkg.activate(@__DIR__)` in the Julia script.
 
 **Two implementations exist** because the code evolved:
 

@@ -8,11 +8,11 @@ Tests:
 
 Usage (on Kestrel — must use wrapper to set GTL preload BEFORE python starts):
     srun --jobid=<ID> -N1 --ntasks=2 --gpus-per-node=2 \
-        /kfs3/scratch/nsawant/run_mgpu.sh test_mgpu.py mgpu
+        /kfs3/scratch/nsawant/run_mgpu.sh run_mgpu_smoke.py mgpu
 
     # single-GPU modes can run without the wrapper:
-    srun ... --ntasks=1 --gpus-per-node=1 python test_mgpu.py fp32
-    srun ... --ntasks=1 --gpus-per-node=1 python test_mgpu.py fp64
+    srun ... --ntasks=1 --gpus-per-node=1 python run_mgpu_smoke.py fp32
+    srun ... --ntasks=1 --gpus-per-node=1 python run_mgpu_smoke.py fp64
 
 Cray-MPICH GTL notes:
     mgpu uses cuStateVec's MPI inter-GPU swap, which passes GPU pointers to
