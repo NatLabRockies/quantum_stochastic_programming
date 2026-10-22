@@ -7,7 +7,7 @@
 | Cluster | Kestrel HPC (NREL) |
 | Hardware | 2× GPU nodes, each with 2× NVIDIA H100 80 GB SXM5 |
 | CUDA-Q version | 0.14 |
-| Python venv | `/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv` |
+| Python environment | Site-provided CUDA-Q and Qiskit environment |
 | Noise model | Depolarising, p₁ = 0.0001, p₂ = 0.001 |
 | DQA timesteps | 20 (TIMESTEPS=20) |
 | Shots | 256 per evaluation (timing study) |
@@ -58,7 +58,9 @@ on the mgpu target via trajectory simulation.
 
 **Key finding**: mgpu requires `MPICH_GPU_SUPPORT_ENABLED=1` and
 `LD_PRELOAD=libmpi_gtl_cuda.so` (Cray GTL) set before Python starts.
-Use the `run_mgpu.sh` wrapper script.
+Configure these values for the local MPI installation before launching.
+`run_mgpu.sh` only selects the Python interpreter via `PYTHON` and forwards
+arguments; it does not set MPI/GPU library variables.
 
 ### Ideal (noiseless) mgpu — 8 GPUs, 256 shots
 
@@ -174,10 +176,10 @@ salloc -N 2 --ntasks-per-node=2 --gpus-per-node=2 -t 4:00:00 \
 ### Step 1 — Activate the Python environment
 
 ```bash
-# From the login node or inside salloc:
-PYTHON=/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python
-IMPL=/kfs3/scratch/$USER/quantum_stochastic_programming/qiskit_impl
-# (or clone the repo first — see README)
+# From the login node or inside an allocation, clone the repository and
+# configure PYTHON to point to the environment with CUDA-Q and Qiskit.
+PYTHON="${PYTHON:-python}"
+IMPL="$(pwd)/qiskit_impl"
 ```
 
 ### Step 2 — Single-GPU baseline (n_y = 4–14)
@@ -218,7 +220,8 @@ srun --jobid=$JOBID \
 
 The `nvidia mgpu` target shards the statevector across all visible GPUs using
 cuStateVec + GPU-aware MPI. On Cray systems this requires special env vars that
-**must be set before Python starts** — use the provided wrapper:
+**must be set before Python starts**. Configure them in the launch environment;
+the wrapper only selects the interpreter via `PYTHON` and forwards arguments:
 
 ```bash
 JOBID=$(squeue --me --format='%i' --noheader | head -1)
@@ -239,9 +242,9 @@ srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \
     2>&1 | tee /tmp/bench_mgpu_noisy.log
 ```
 
-> **Cray MPICH GTL requirement**: `run_mgpu.sh` sets
-> `MPICH_GPU_SUPPORT_ENABLED=1`, `LD_LIBRARY_PATH=/nopt/cuda/12.4/lib64`,
-> and `LD_PRELOAD=libmpi_gtl_cuda.so` before exec-ing Python.
+> **Cray MPICH GTL requirement**: Set `MPICH_GPU_SUPPORT_ENABLED=1`,
+> `LD_LIBRARY_PATH=<CUDA runtime library path>`, and
+> `LD_PRELOAD=libmpi_gtl_cuda.so` in the launch environment before exec-ing Python.
 > Without this, cuStateVec's `SVSwapWorkerExecute` crashes with
 > `process_vm_readv: Bad address` (Cray SHM transport reading GPU pointers).
 > See `module help qiskit/aer-gpu` for details.

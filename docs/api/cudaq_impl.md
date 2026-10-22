@@ -33,9 +33,9 @@ run natively on NVIDIA GPUs via cuStateVec.
 
 ---
 
-### `cost_operator_n4`
+### `cost_operator`
 
-::: qiskit_impl.cudaq_impl.cost_operator_n4
+::: qiskit_impl.cudaq_impl.cost_operator
 
 ---
 
@@ -45,18 +45,19 @@ run natively on NVIDIA GPUs via cuStateVec.
 
 ---
 
-### `mixer_n4`
+### `mixer`
 
-::: qiskit_impl.cudaq_impl.mixer_n4
-
----
-
-### `oracle_sin_n4`
-
-::: qiskit_impl.cudaq_impl.oracle_sin_n4
+::: qiskit_impl.cudaq_impl.mixer
 
 ---
 
-### `dqa_ansatz_n4`
+### `oracle_sin`
 
-::: qiskit_impl.cudaq_impl.dqa_ansatz_n4
+
+::: qiskit_impl.cudaq_impl.oracle_sin
+
+---
+
+### `dqa_ansatz`
+
+::: qiskit_impl.cudaq_impl.dqa_ansatz

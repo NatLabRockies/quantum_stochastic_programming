@@ -52,16 +52,12 @@ import matplotlib.pyplot as plt
 
 # Add the qiskit/aer-gpu venv site-packages so the Jupyter kernel (which starts
 # without 'module load qiskit') can find qiskit, qiskit_aer, cudaq, etc.
-_QISKIT_SP = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
-# _QISKIT_IMPL = '/projects/hpcapps/nsawant/quantum_stochastic_programming/qiskit_impl'
-# _QISKIT_IMPL = '/projects/msoc/jmaack/quantum_stochastic_programming/qiskit_impl'
-
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+if _QISKIT_IMPL not in sys.path:
+    sys.path.insert(0, _QISKIT_IMPL)
 
 # Always available: Qiskit core + problem helpers
 from qae import *
@@ -189,7 +185,7 @@ bno = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
 # For cuda-q, create the optimizer now so COBYLA uses the same kernel
 if BACKEND == 'cuda-q':
     cudaq_opt = CudaqQAEOptimizer(c_x=c_x, c_y=c_y, c_r=c_r,
-                                  n_y=n_y, w_d=w_d, cost_norm=cost_norm)
+                                  n_y=n_y, w_d=w_d, norm=norm)
 
 def _dqa_expected_value(theta_flat: list[float]) -> float:
     """Evaluate DQA expected value for COBYLA.
@@ -484,4 +480,3 @@ plt.show()
 # - Error relative to classical brute-force optimum is driven by finite DQA ansatz depth (`p=1`), not backend noise.
 # - Wall time: aer-gpu QAE (4096 shots) ≈ 3.8 s; cuda-q QAE ≈ 0.08 s (direct amplitude estimation, no sampling loop).
 # 
-

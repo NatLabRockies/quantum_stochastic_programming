@@ -3,20 +3,19 @@
 256 shots split across 2 virtual QPUs via cudaq.sample_async.
 
 Run on an allocated node:
-    ssh x3103c0s9b0n0 "nohup /path/to/python par_benchmark_2gpu.py > /tmp/par_bench_2gpu.log 2>&1 &"
+    python par_benchmark_2gpu.py
 """
-import os, sys, math, time, json
+import sys, math, time, json
+from pathlib import Path
 
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 N_SHOTS   = 256
 TIMESTEPS = 20
@@ -40,7 +39,7 @@ def make_opt(ny):
         theta0.append(float(t / TIMESTEPS))
         theta0.append((1 - float(t / TIMESTEPS)) / math.pi)
     return CudaqQAEOptimizer(c_x=C_X, c_y=c_y, c_r=C_R, n_y=ny, w_d=w_d,
-                             cost_norm=cost_norm, noise_model=noise_model), theta0
+                             norm=cost_norm * ny, noise_model=noise_model), theta0
 
 results = {}
 for ny in NY_LIST:
@@ -60,7 +59,7 @@ for ny in NY_LIST:
     if ny in results:
         print(f'{ny:>4}  {2*ny:>6}  {results[ny]:>10.1f}')
 
-fname = os.path.join(_QISKIT_IMPL, 'par_benchmark_2gpu_results.json')
+fname = QISKIT_IMPL_DIR / 'par_benchmark_2gpu_results.json'
 with open(fname, 'w') as f:
     json.dump({'n_shots': N_SHOTS, 'n_gpus': N_QPUS,
                'timings': {str(ny): results[ny] for ny in NY_LIST if ny in results}}, f, indent=2)

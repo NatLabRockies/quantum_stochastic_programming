@@ -5,31 +5,28 @@ cuStateVec shards the statevector across all visible GPUs automatically.
 n_y=16 → 32 qubits → 32 GB fp32 → 8 GB/GPU  (4 GPUs)
 n_y=17 → 34 qubits → 137 GB fp32 → 34 GB/GPU (4 GPUs)
 
-Launch with the wrapper (sets GTL preload):
+Launch from qiskit_impl/ after configuring any site-specific MPI/GPU environment:
     srun --jobid=<ID> -N1 --ntasks=1 --gpus-per-node=4 \\
-        /kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl/run_mgpu.sh \\
-        par_benchmark_mgpu.py 2>&1 | tee /kfs3/scratch/nsawant/bench_mgpu.log
+        ./run_mgpu.sh par_benchmark_mgpu.py 2>&1 | tee bench_mgpu.log
 
-NOTE: run_mgpu.sh exec's python3 directly, passing all args through.
+NOTE: run_mgpu.sh selects the interpreter via PYTHON and forwards all args.
 """
 import os, sys, math, time, json
+from pathlib import Path
 
-_SP      = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_IMPL    = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
-for _p in [_SP, _IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-_CRAY_LIBMPI = '/opt/cray/pe/mpich/8.1.28/ofi/gnu/10.3/lib/libmpi.so'
-os.environ.setdefault('CUDAQ_MPI_COMM_LIB',
-    f'{_SP}/distributed_interfaces/libcudaq_distributed_interface_mpi.so')
-os.environ.setdefault('CUDAQ_MGPU_LIB_MPI', _CRAY_LIBMPI)
-os.environ.setdefault('CUDAQ_MGPU_COMM_PLUGIN_TYPE', 'MPICH')
+# Set these CUDA-Q MPI variables in the launch environment when required by the
+# local CUDA-Q and MPI installations.
+if os.environ.get('CUDAQ_MGPU_LIB_MPI'):
+    os.environ.setdefault('CUDAQ_MGPU_COMM_PLUGIN_TYPE', 'MPICH')
 
 import numpy as np
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 cudaq.set_target('nvidia', option='mgpu,fp32')
 n_visible = cudaq.num_available_gpus()
@@ -54,7 +51,7 @@ def make_opt(ny, noisy=False):
         theta0.append((1 - float(t / TIMESTEPS)) / math.pi)
     opt = CudaqQAEOptimizer(
         c_x=C_X, c_y=c_y, c_r=C_R, n_y=ny, w_d=w_d,
-        cost_norm=cost_norm,
+        norm=cost_norm * ny,
         noise_model=noise_model if noisy else None)
     return opt, theta0
 
@@ -80,7 +77,7 @@ for ny in NY_LIST:
             print(f"  {label:10s}: FAILED — {e}")
             results[f'ny{ny}_{label}'] = {'error': str(e)}
 
-out = '/kfs3/scratch/nsawant/bench_mgpu_results.json'
+out = QISKIT_IMPL_DIR / 'bench_mgpu_results.json'
 with open(out, 'w') as f:
     json.dump(results, f, indent=2)
 print(f"\nResults saved to {out}")

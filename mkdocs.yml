@@ -37,7 +37,7 @@ plugins:
           paths:
             - .
             - qiskit_impl
-            - QuantumExpectedValueFunctionProject
+            - legacy
           options:
             docstring_style: google
             show_source: true
@@ -82,7 +82,7 @@ nav:
       - ExpValFun_functions: api/expvalfun_functions.md
       - dist_prep: api/dist_prep.md
       - resource_estimator: api/resource_estimator.md
-    - QuantumExpectedValueFunctionProject/:
+    - Legacy implementation:
       - optimizer_utils: api/optimizer_utils.md
       - dense_optimizer: api/dense_optimizer.md
       - expanded_optimizer: api/expanded_optimizer.md

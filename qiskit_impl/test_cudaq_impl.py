@@ -13,7 +13,11 @@ On Kestrel with GPU compute node:
     python -m pytest test_cudaq_impl.py -v --tb=short
 """
 
-import sys, os
+import json
+import os
+import subprocess
+import sys
+from textwrap import dedent
 sys.path.insert(0, os.path.dirname(__file__))
 
 import math
@@ -44,10 +48,7 @@ from cudaq_impl import (
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope='session', autouse=True)
 def set_cudaq_target():
-    try:
-        cudaq.set_target('nvidia')
-    except Exception:
-        cudaq.set_target('qpp-cpu')
+    cudaq.set_target('qpp-cpu')
 
 
 # ---------------------------------------------------------------------------
@@ -386,18 +387,21 @@ class TestMixer:
 class TestOracleSin:
     def test_ancilla_rotates_away_from_zero(self):
         """After oracle, Pr[ancilla=1] should be > 0."""
-        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+        angles_42 = dicke_state_angles(N_Y, 1)
 
         @cudaq.kernel
-        def wrapper(ang: list[float], c_y: list[float], c_r_: float, norm: float):
+        def wrapper(ang: list[float], oracle_cy: list[float], oracle_cr: float):
             y       = cudaq.qvector(N_Y)
             xi      = cudaq.qvector(N_Y)
             ancilla = cudaq.qubit()
-            dicke_state(N_Y, WIND_DEMAND, ang, y)
+            dicke_state(N_Y, 1, ang, y)
             pdf_init_uniform(xi)
-            oracle_sin(c_y, c_r_, norm, y, xi, ancilla)
+            oracle_sin(oracle_cy, oracle_cr, y, xi, ancilla)
 
-        counts = cudaq.sample(wrapper, angles_42, C_Y, C_R, WIND_DEMAND * C_R,
+        norm = C_R
+        oracle_cy = [2.0 * math.asin(math.sqrt(cost / norm)) for cost in C_Y]
+        oracle_cr = 2.0 * math.asin(math.sqrt(C_R / norm))
+        counts = cudaq.sample(wrapper, angles_42, oracle_cy, oracle_cr,
                               shots_count=4096)
         probs = _probabilities_from_counts(counts)
         p_ancilla_1 = sum(v for k, v in probs.items() if k[-1] == '1')
@@ -406,18 +410,21 @@ class TestOracleSin:
 
     def test_ancilla_in_unit_interval(self):
         """Pr[ancilla=1] must be in [0, 1]."""
-        angles_42 = dicke_state_angles(N_Y, WIND_DEMAND)
+        angles_42 = dicke_state_angles(N_Y, 1)
 
         @cudaq.kernel
-        def wrapper(ang: list[float], c_y: list[float], c_r_: float, norm: float):
+        def wrapper(ang: list[float], oracle_cy: list[float], oracle_cr: float):
             y       = cudaq.qvector(N_Y)
             xi      = cudaq.qvector(N_Y)
             ancilla = cudaq.qubit()
-            dicke_state(N_Y, WIND_DEMAND, ang, y)
+            dicke_state(N_Y, 1, ang, y)
             pdf_init_uniform(xi)
-            oracle_sin(c_y, c_r_, norm, y, xi, ancilla)
+            oracle_sin(oracle_cy, oracle_cr, y, xi, ancilla)
 
-        counts = cudaq.sample(wrapper, angles_42, C_Y, C_R, WIND_DEMAND * C_R,
+        norm = C_R
+        oracle_cy = [2.0 * math.asin(math.sqrt(cost / norm)) for cost in C_Y]
+        oracle_cr = 2.0 * math.asin(math.sqrt(C_R / norm))
+        counts = cudaq.sample(wrapper, angles_42, oracle_cy, oracle_cr,
                               shots_count=4096)
         probs = _probabilities_from_counts(counts)
         p_ancilla_1 = sum(v for k, v in probs.items() if k[-1] == '1')
@@ -480,7 +487,7 @@ class TestCudaqQAEOptimizer:
     def opt(self):
         return CudaqQAEOptimizer(
             c_x=[3.0], c_y=C_Y, c_r=C_R,
-            n_y=N_Y, w_d=WIND_DEMAND, cost_norm=COST_NORM)
+            n_y=N_Y, w_d=WIND_DEMAND, norm=N_Y * COST_NORM)
 
     def test_init_stores_parameters(self, opt):
         assert opt.c_y == C_Y
@@ -558,26 +565,42 @@ class TestCudaqVsQiskit:
     def test_expected_value_within_factor_of_two(self):
         """
         CUDA-Q and Qiskit DQA estimates of E[Q(x, xi)] should agree within 2x.
-        Both use shot-based sampling so some variance is expected.
+        Both use shot-based sampling so some variance is expected. Run Qiskit
+        in a subprocess because loading CUDA-Q and Aer together can segfault.
         """
-        try:
-            from binary_optimizer import BinaryNestedOptimizer
-            import sys, os
-            sys.path.insert(0, os.path.dirname(__file__))
-        except ImportError:
-            pytest.skip("binary_optimizer not importable")
+        qiskit_script = dedent(f"""
+            import json
+            from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
 
-        pdf = {tuple([int(v) for v in f'{i:04b}']): 1/16 for i in range(16)}
-        bno = BinaryNestedOptimizer([3.], C_Y, C_R, pdf, N_Y, is_uniform=True)
-
-        # Qiskit estimate
-        uopt = bno.adiabatic_evolution_circuit(WIND_DEMAND, 4, 4, COST_NORM)
-        qiskit_counts = bno.execute_optimizer(uopt, num_meas=2048)
-        qiskit_phi = bno.process_expectation_value_optimizer(WIND_DEMAND, qiskit_counts)
+            n_y = {N_Y}
+            c_y = {C_Y!r}
+            c_r = {C_R!r}
+            wind_demand = {WIND_DEMAND}
+            cost_norm = {COST_NORM!r}
+            pdf = {{tuple(int(v) for v in f'{{i:04b}}'): 1/16
+                   for i in range(16)}}
+            optimizer = BinaryNestedOptimizer(
+                [3.], c_y, c_r, pdf, n_y, is_uniform=True)
+            circuit = optimizer.adiabatic_evolution_circuit(
+                wind_demand, 4, 4, cost_norm)
+            counts = optimizer.execute_optimizer(circuit, num_meas=2048)
+            print(json.dumps(optimizer.process_expectation_value_optimizer(
+                wind_demand, counts)))
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", qiskit_script],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        qiskit_phi = json.loads(result.stdout.strip())
 
         # CUDA-Q estimate
         opt = CudaqQAEOptimizer(c_x=[3.], c_y=C_Y, c_r=C_R,
-                                n_y=N_Y, w_d=WIND_DEMAND, cost_norm=COST_NORM)
+                                n_y=N_Y, w_d=WIND_DEMAND,
+                                norm=N_Y * COST_NORM)
         cudaq_phi = opt.estimate_expected_value(THETAS, WIND_DEMAND, shots=2048)
 
         assert cudaq_phi >= 0 and qiskit_phi >= 0
@@ -601,15 +624,13 @@ from cudaq_impl import (
     dicke_state_angles,
 )
 
-cudaq.set_target('qpp-cpu')
-
 # ── Shared small-problem fixture ──────────────────────────────────────────────
 @pytest.fixture
 def small_opt():
     """n_y=2, w_d=1 — smallest non-trivial case."""
     return CudaqQAEOptimizer(
         c_x=[3.], c_y=[0.4, 0.8], c_r=5.0,
-        n_y=2, w_d=1, cost_norm=5.0,
+        n_y=2, w_d=1, norm=5.0,
     )
 
 
@@ -627,10 +648,10 @@ class TestProcessQaeResult:
         assert small_opt.process_qae_result(counts, m=2) == pytest.approx(0.0)
 
     def test_peak_at_half_range_gives_norm(self, small_opt):
-        # b = 2^(m-1) = 2 for m=2 -> sin²(2π/4) = sin²(π/2) = 1 -> cost_norm
+        # b = 2^(m-1) = 2 for m=2 -> sin²(2π/4) = sin²(π/2) = 1 -> norm
         counts = {'10': 1.0, '00': 0.0}
         result = small_opt.process_qae_result(counts, m=2)
-        assert result == pytest.approx(small_opt.cost_norm)
+        assert result == pytest.approx(small_opt.norm)
 
     def test_peak_selects_argmax(self, small_opt):
         # Should pick b=1 (prob 0.7) over b=2 (prob 0.3)
@@ -640,11 +661,11 @@ class TestProcessQaeResult:
         assert result_peak != pytest.approx(result_other)
 
     def test_result_in_valid_range(self, small_opt):
-        # Any output must be in [0, cost_norm]
+        # Any output must be in [0, norm]
         for b in range(4):
             bstr = format(b, '02b')
             result = small_opt.process_qae_result({bstr: 1.0}, m=2)
-            assert 0.0 <= result <= small_opt.cost_norm + 1e-9
+            assert 0.0 <= result <= small_opt.norm + 1e-9
 
 
 # ── _s_chi — Z on ancilla flips phase of |1⟩ ─────────────────────────────────
@@ -674,22 +695,27 @@ class TestSChi:
 @cudaq.kernel
 def _test_a_op_kernel(dicke_angles: list[float],
                       c_y: list[float], c_r: float, cost_norm: float,
-                      w_d: int, thetas: list[float], n_steps: int, n_y: int):
+                      w_d: int, thetas: list[float], n_steps: int, n_y: int,
+                      oracle_cy: list[float], oracle_cr: float):
     all_q = cudaq.qvector(2 * n_y + 1)
     sys   = all_q[0:2 * n_y]
     anc   = all_q[2 * n_y]
-    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
+    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+          oracle_cy, oracle_cr, sys, anc)
 
 
 @cudaq.kernel
 def _test_a_op_then_dagger_kernel(dicke_angles: list[float],
                                   c_y: list[float], c_r: float, cost_norm: float,
-                                  w_d: int, thetas: list[float], n_steps: int, n_y: int):
+                                  w_d: int, thetas: list[float], n_steps: int, n_y: int,
+                                  oracle_cy: list[float], oracle_cr: float):
     all_q = cudaq.qvector(2 * n_y + 1)
     sys   = all_q[0:2 * n_y]
     anc   = all_q[2 * n_y]
-    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
-    _a_op_dagger(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y, sys, anc)
+    _a_op(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+          oracle_cy, oracle_cr, sys, anc)
+    _a_op_dagger(dicke_angles, c_y, c_r, cost_norm, w_d, thetas, n_steps, n_y,
+                 oracle_cy, oracle_cr, sys, anc)
 
 
 class TestAOp:
@@ -697,25 +723,36 @@ class TestAOp:
         """After A|0⟩, the ancilla must have some |1⟩ amplitude (cost > 0)."""
         dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
         n_steps = len(small_thetas) // 2
+        oracle_cy = [
+            2.0 * math.asin(math.sqrt(c / small_opt.norm))
+            for c in small_opt._effective_c_y()
+        ]
+        oracle_cr = 2.0 * math.asin(math.sqrt(small_opt.c_r / small_opt.norm))
         sv = cudaq.get_state(
             _test_a_op_kernel,
             dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
             small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+            oracle_cy, oracle_cr,
         )
         sv_arr   = np.array(sv)
-        n_total  = 2 * small_opt.n_y + 1
-        # ancilla is the last qubit (index n_total-1); |1⟩ states have bit 0 set in LSB
+        ancilla_bit = 2 * small_opt.n_y
         prob_anc1 = sum(abs(sv_arr[i])**2 for i in range(len(sv_arr))
-                        if (i >> 0) & 1)   # qubit 0 = LSB in statevector indexing
+                        if (i >> ancilla_bit) & 1)
         assert prob_anc1 > 1e-6, "Ancilla should have non-zero |1⟩ amplitude"
 
     def test_statevector_is_normalised(self, small_opt, small_thetas):
         dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
         n_steps = len(small_thetas) // 2
+        oracle_cy = [
+            2.0 * math.asin(math.sqrt(c / small_opt.norm))
+            for c in small_opt._effective_c_y()
+        ]
+        oracle_cr = 2.0 * math.asin(math.sqrt(small_opt.c_r / small_opt.norm))
         sv = cudaq.get_state(
             _test_a_op_kernel,
             dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
             small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+            oracle_cy, oracle_cr,
         )
         norm = sum(abs(a)**2 for a in np.array(sv))
         assert norm == pytest.approx(1.0, abs=1e-6)
@@ -724,10 +761,16 @@ class TestAOp:
         """A† · A should return |0...0⟩ up to floating-point precision."""
         dang    = dicke_state_angles(small_opt.n_y, small_opt.w_d)
         n_steps = len(small_thetas) // 2
+        oracle_cy = [
+            2.0 * math.asin(math.sqrt(c / small_opt.norm))
+            for c in small_opt._effective_c_y()
+        ]
+        oracle_cr = 2.0 * math.asin(math.sqrt(small_opt.c_r / small_opt.norm))
         sv = cudaq.get_state(
             _test_a_op_then_dagger_kernel,
             dang, small_opt.c_y, small_opt.c_r, small_opt.cost_norm,
             small_opt.w_d, small_thetas, n_steps, small_opt.n_y,
+            oracle_cy, oracle_cr,
         )
         probabilities = np.abs(np.array(sv)) ** 2
         assert probabilities[0] == pytest.approx(1.0, abs=1e-6)

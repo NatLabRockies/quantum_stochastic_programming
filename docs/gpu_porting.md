@@ -27,7 +27,7 @@ simulator = AerSimulator(method='statevector', device='GPU')
 Locations marked with `# GPU-SWAP TIER 1` in the codebase:
 
 - `qiskit_impl/binary_optimizer.py` → `execute_optimizer()`, `execute_optimizer_oracle()`, `execute_qae()`
-- `QuantumExpectedValueFunctionProject/dense_optimizer.py` → all `solveAnnealing*()` methods
+- `legacy/QuantumExpectedValueFunctionProject/dense_optimizer.py` → all `solveAnnealing*()` methods
 
 Expected speedup: **5–50×** for circuits with $n \geq 20$ qubits. Risk: **zero** — pure backend swap.
 

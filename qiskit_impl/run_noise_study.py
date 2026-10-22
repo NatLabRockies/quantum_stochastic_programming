@@ -15,16 +15,15 @@ Mirrors ``experiments/cuda_q_script.py`` exactly:
   noisy eval = estimate_expected_value(Theta, w_d, shots=N_SHOTS) — constraint-aware sampling
 
 Run with:
-  /kfs3/scratch/nsawant/qiskit_env/bin/python run_noise_study.py 2>&1 | tee /tmp/noise_study.log
+  python run_noise_study.py 2>&1 | tee /tmp/noise_study.log
 """
 import os, sys, math, time, json
+from pathlib import Path
 
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import matplotlib
@@ -33,8 +32,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
-from binary_optimizer import BinaryNestedOptimizer
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
 
 cudaq.set_target('nvidia', option='mqpu')
 N_QPUS = cudaq.num_available_gpus()
@@ -62,6 +61,7 @@ for ny in N_Y_LIST:
     c_y       = list(np.linspace(0.1, 1.0, ny))
     w_d       = ny - 2              # x0=[2], d=n_y
     cost_norm = w_d * C_R / ny
+    norm      = w_d * C_R
     theta0    = []
     for t in range(TIMESTEPS):
         theta0.append(float(t / TIMESTEPS))
@@ -70,7 +70,7 @@ for ny in N_Y_LIST:
     pdf = {tuple(int(v) for v in f'{i:0{ny}b}'): 1/2**ny
            for i in range(2**ny)}
     CONFIGS[ny] = dict(n_y=ny, w_d=w_d, c_y=c_y, c_r=C_R,
-                       cost_norm=cost_norm, timesteps=TIMESTEPS,
+                       cost_norm=cost_norm, norm=norm, timesteps=TIMESTEPS,
                        theta0=theta0, pdf=pdf)
     print(f'  n_y={ny:2d}  w_d={w_d}  cost_norm={cost_norm:.4f}  '
           f'#params={len(theta0)}  c_y={[round(c,3) for c in c_y]}')
@@ -102,7 +102,7 @@ for ny, cfg in CONFIGS.items():
         print(f'\n  n_y={ny}  ({len(cfg["theta0"])} params)...', flush=True)
         opt = CudaqQAEOptimizer(
             c_x=C_X, c_y=cfg['c_y'], c_r=cfg['c_r'],
-            n_y=ny, w_d=cfg['w_d'], cost_norm=cfg['cost_norm'],
+            n_y=ny, w_d=cfg['w_d'], norm=cfg['norm'],
             noise_model=None)
         calls = [0]
         def _obj(th, _opt=opt, _wd=cfg['w_d']):
@@ -140,7 +140,7 @@ for ny, thetas in optimized_thetas.items():
 
     opt_i = CudaqQAEOptimizer(
         c_x=C_X, c_y=cfg['c_y'], c_r=cfg['c_r'],
-        n_y=ny, w_d=cfg['w_d'], cost_norm=cfg['cost_norm'], noise_model=None)
+        n_y=ny, w_d=cfg['w_d'], norm=cfg['norm'], noise_model=None)
     t0    = time.perf_counter()
     phi_i = opt_i.estimate_expected_value_observe(thetas)
     dt_i  = time.perf_counter() - t0
@@ -155,7 +155,7 @@ for ny, thetas in optimized_thetas.items():
     # committed) appear artificially cheap, causing phi_noisy < phi_ideal.
     opt_n = CudaqQAEOptimizer(
         c_x=C_X, c_y=cfg['c_y'], c_r=cfg['c_r'],
-        n_y=ny, w_d=cfg['w_d'], cost_norm=cfg['cost_norm'], noise_model=noise_model)
+        n_y=ny, w_d=cfg['w_d'], norm=cfg['norm'], noise_model=noise_model)
     t0     = time.perf_counter()
     counts = opt_n.sample_ansatz_mqpu(cfg['theta0'], total_shots=N_SHOTS, n_qpus=N_QPUS)
     phi_n  = 0.0
@@ -225,7 +225,7 @@ ax.set_title(f'Cost decomposition\nclassical + DQA gap + noise impact', fontsize
 ax.set_xticks(ny_vals); ax.legend(fontsize=9); ax.grid(True, axis='y', alpha=0.4)
 
 plt.tight_layout()
-out_png = os.path.join(_QISKIT_IMPL, 'noise_study_accuracy.png')
+out_png = QISKIT_IMPL_DIR / 'noise_study_accuracy.png'
 plt.savefig(out_png, dpi=150, bbox_inches='tight')
 print(f'\nPlot saved → {out_png}')
 
@@ -241,7 +241,7 @@ for ny in ny_vals:
           f"{pn:>9.4f} {abs(pn-ref)/ref*100:>8.2f} {(pn-pi)/abs(pi)*100:>+13.2f}")
 
 # Save JSON
-out_json = os.path.join(_QISKIT_IMPL, 'noise_study_results.json')
+out_json = QISKIT_IMPL_DIR / 'noise_study_results.json'
 json.dump({str(ny): {
     'classical': classical_phi[ny], 'ideal': results_ideal[ny],
     'noisy': results_noisy[ny], 'thetas': optimized_thetas[ny],

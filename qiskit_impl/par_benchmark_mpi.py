@@ -7,26 +7,25 @@ Rank 0 times the parallel shot sampling and gathers results via MPI.
 Launch from within a salloc (2 nodes, 2 GPUs each = 4 ranks total):
 
     srun --jobid=<JOBID> -N 2 --ntasks-per-node=2 --gpus-per-node=2 \
-        /nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python \
+        python \
         par_benchmark_mpi.py 2>&1 | tee /tmp/par_bench_mpi.log
 """
 import os, sys, math, time, json
+from pathlib import Path
 
 # GPU binding MUST happen before any CUDA/cudaq import
 _local_id = int(os.environ.get('SLURM_LOCALID', 0))
 os.environ['CUDA_VISIBLE_DEVICES'] = str(_local_id)
 
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 from mpi4py import MPI
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
@@ -60,7 +59,7 @@ def make_opt(ny):
         theta0.append(float(t / TIMESTEPS))
         theta0.append((1 - float(t / TIMESTEPS)) / math.pi)
     opt = CudaqQAEOptimizer(c_x=C_X, c_y=c_y, c_r=C_R, n_y=ny, w_d=w_d,
-                            cost_norm=cost_norm, noise_model=noise_model)
+                            norm=cost_norm * ny, noise_model=noise_model)
     return opt, theta0
 
 if rank == 0:
@@ -102,7 +101,7 @@ if rank == 0:
         if ny in results_4gpu:
             print(f"{ny:>4}  {2*ny:>6}  {results_4gpu[ny]:>10.1f}")
 
-    fname = os.path.join(_QISKIT_IMPL, 'par_benchmark_mpi_results.json')
+    fname = QISKIT_IMPL_DIR / 'par_benchmark_mpi_results.json'
     with open(fname, 'w') as f:
         json.dump({'n_shots': N_SHOTS, 'n_gpus': size,
                    'timings': {str(ny): results_4gpu[ny]

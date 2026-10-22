@@ -6,13 +6,13 @@ All runs: 256 shots, TIMESTEPS=20, p1=0.0001, p2=0.001.
 Memory limit: n_y>=16 (>=32 qubits) needs >=68.7 GB/trajectory -> OOM on H100 (80 GB).
 Practical ceiling: n_y=14 (28 qubits, 4.3 GB/trajectory).
 """
-import os
+from pathlib import Path
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-SCRATCH_IMPL = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
+OUTPUT_DIR = Path(__file__).resolve().parent
 
 # ny -> (t_1gpu, t_2gpu, t_4gpu)  None = not run / OOM
 # n_y=4-12: 1-GPU & 2-GPU from par_benchmark.py (warm GPU, nvidia mqpu target)
@@ -115,7 +115,7 @@ fig.suptitle(
     fontsize=10, y=1.02)
 
 plt.tight_layout()
-out = os.path.join(SCRATCH_IMPL, 'parallelisation_study.png')
+out = OUTPUT_DIR / 'parallelisation_study.png'
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f'Plot saved -> {out}')
 
@@ -207,7 +207,7 @@ fig2.suptitle(
     fontsize=10, y=1.01)
 
 plt.tight_layout()
-out2 = os.path.join(SCRATCH_IMPL, 'parallelisation_mgpu_comparison.png')
+out2 = OUTPUT_DIR / 'parallelisation_mgpu_comparison.png'
 plt.savefig(out2, dpi=150, bbox_inches='tight')
 print(f'Plot saved -> {out2}')
 # Summary table

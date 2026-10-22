@@ -16,13 +16,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+if _QISKIT_IMPL not in sys.path:
+    sys.path.insert(0, _QISKIT_IMPL)
 
 from qae import pdf_initialize
 import ExpValFun_functions as exp
@@ -187,7 +186,7 @@ for n_y in N_Y_VALUES:
             try:
                 cudaq_opt = CudaqQAEOptimizer(
                     c_x=c_x, c_y=c_y, c_r=c_r,
-                    n_y=n_y, w_d=w_d, cost_norm=cost_norm,
+                    n_y=n_y, w_d=w_d, norm=norm,
                 )
                 t0 = time.perf_counter()
                 if backend == 'nvidia-mqpu':

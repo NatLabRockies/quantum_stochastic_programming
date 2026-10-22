@@ -6,8 +6,9 @@
 #   bash run_mpi_bench.sh
 #   (or: source it from within the srun terminal)
 
-PYTHON=/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python
-SCRIPT=/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl/par_benchmark_mpi.py
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON="${PYTHON:-python}"
+SCRIPT="${SCRIPT_DIR}/par_benchmark_mpi.py"
 LOG=/tmp/par_bench_mpi.log
 
 echo "Nodes in allocation: $SLURM_JOB_NODELIST"
@@ -20,7 +21,7 @@ srun \
   --ntasks-per-node=2 \
   --gpus-per-task=1 \
   --gpu-bind=closest \
-  $PYTHON $SCRIPT 2>&1 | tee $LOG
+  "$PYTHON" "$SCRIPT" 2>&1 | tee "$LOG"
 
 echo ""
 echo "Log saved → $LOG"

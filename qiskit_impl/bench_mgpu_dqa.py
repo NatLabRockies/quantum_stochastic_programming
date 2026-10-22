@@ -2,29 +2,26 @@
 mgpu DQA benchmark — n_y = 16, 17, 18 across all available GPUs.
 
 Each MPI rank drives one GPU; cuStateVec distributes the fp32 statevector
-across all ranks via GPU-aware MPI.  Must be launched via run_mgpu.sh so
-that Cray GTL is preloaded before Python starts:
+across all ranks via GPU-aware MPI. Configure any site-specific MPI/GPU
+environment before launching. From qiskit_impl/:
 
     srun -N 2 --ntasks-per-node=4 --gpus-per-node=4 \\
-        /kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl/run_mgpu.sh \\
+        ./run_mgpu.sh \\
         bench_mgpu_dqa.py [--ny 16 17 18] [--shots 256] [--noisy] 2>&1 | tee bench_mgpu_dqa.log
 """
 import sys, os, time, math, json, argparse
+from pathlib import Path
 
 # ── path setup (before any cudaq import) ─────────────────────────────────────
-_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_IMPL = os.path.dirname(os.path.abspath(__file__))
-for _p in [_SP, _IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-# ── cudaq MPI env (must be before import cudaq) ───────────────────────────────
-os.environ.setdefault('CUDAQ_MPI_COMM_LIB',
-    f'{_SP}/distributed_interfaces/libcudaq_distributed_interface_mpi.so')
-os.environ.setdefault('CUDAQ_MGPU_LIB_MPI',
-    '/opt/cray/pe/mpich/8.1.28/ofi/gnu/10.3/lib/libmpi.so')
-os.environ.setdefault('CUDAQ_MGPU_COMM_PLUGIN_TYPE', 'MPICH')
+# Set CUDA-Q MPI library variables in the launch environment when the installed
+# CUDA-Q and MPI distribution requires explicit library configuration.
+if os.environ.get('CUDAQ_MGPU_LIB_MPI'):
+    os.environ.setdefault('CUDAQ_MGPU_COMM_PLUGIN_TYPE', 'MPICH')
 
 import cudaq
 import numpy as np
@@ -35,7 +32,7 @@ ntasks = int(os.environ.get('SLURM_NTASKS', 1))
 
 cudaq.set_target('nvidia', option='mgpu,fp32')
 
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
@@ -61,7 +58,7 @@ def make_opt(ny):
         theta0.append(float(t / TIMESTEPS))
         theta0.append((1 - float(t / TIMESTEPS)) / math.pi)
     opt = CudaqQAEOptimizer(c_x=C_X, c_y=c_y, c_r=C_R, n_y=ny, w_d=w_d,
-                            cost_norm=cost_norm, noise_model=noise_model)
+                            norm=cost_norm * ny, noise_model=noise_model)
     return opt, theta0
 
 if rank == 0:
@@ -98,7 +95,7 @@ for ny in args.ny:
         results[ny] = {'error': str(e)}
 
 if rank == 0:
-    out = f'/kfs3/scratch/nsawant/bench_mgpu_dqa_{"noisy" if args.noisy else "ideal"}_gpu{ntasks}.json'
+    out = QISKIT_IMPL_DIR / f'bench_mgpu_dqa_{"noisy" if args.noisy else "ideal"}_gpu{ntasks}.json'
     with open(out, 'w') as f:
         json.dump(results, f, indent=2)
     print(f'\nResults saved to {out}')

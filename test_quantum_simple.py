@@ -8,21 +8,13 @@ import os
 import sys
 import time
 
-# Add paths
-_QISKIT_SP = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qiskit_impl')
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
-
 print("\n" + "="*70)
 print("QUANTUM STOCHASTIC OPTIMIZATION — SIMPLE TEST")
 print("="*70)
 
 # === IMPORTS ===
 try:
-    from binary_optimizer import BinaryNestedOptimizer
+    from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
     import numpy as np
     print("[✓] Imports successful")
 except Exception as e:

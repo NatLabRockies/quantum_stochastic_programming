@@ -11,13 +11,12 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+if _QISKIT_IMPL not in sys.path:
+    sys.path.insert(0, _QISKIT_IMPL)
 
 from qae import *
 from binary_optimizer import BinaryNestedOptimizer
@@ -89,7 +88,7 @@ for n_y in N_Y_VALUES:
     # ── DQA ANGLES ──────────────────────────────────────────────────────────
     cudaq_opt = CudaqQAEOptimizer(
         c_x=c_x, c_y=c_y, c_r=c_r,
-        n_y=n_y, w_d=w_d, cost_norm=cost_norm,
+        n_y=n_y, w_d=w_d, norm=norm,
     )
 
     theta0 = []
@@ -181,12 +180,13 @@ ax2.grid(True, alpha=0.3)
 
 plt.suptitle('CUDA-Q $n_y$ sweep (nvidia target)', fontsize=12, fontweight='bold')
 plt.tight_layout()
-plt.savefig('cuda_q_sweep_results.png', dpi=150)
+plot_path = os.path.join(_QISKIT_IMPL, 'cuda_q_sweep_results.png')
+plt.savefig(plot_path, dpi=150)
 plt.show()
-print("Plot saved to cuda_q_sweep_results.png")
+print(f"Plot saved to {plot_path}")
 
 # ── CSV OUTPUT ─────────────────────────────────────────────────────────────────
-csv_path = 'cuda_q_sweep_results.csv'
+csv_path = os.path.join(_QISKIT_IMPL, 'cuda_q_sweep_results.csv')
 fieldnames = ['n_y', 'w_d', 'dqa_phi', 'dqa_time_ms', 'qae_phi', 'qae_time_ms']
 with open(csv_path, 'w', newline='') as f:
     writer = csv.DictWriter(f, fieldnames=fieldnames)

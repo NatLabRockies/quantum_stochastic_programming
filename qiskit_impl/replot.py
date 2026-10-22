@@ -1,9 +1,12 @@
 """Regenerate noise_study_accuracy.png from saved JSON (no GPU needed)."""
 import json, numpy as np
+from pathlib import Path, numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-data    = json.load(open('noise_study_results.json'))
+SCRIPT_DIR = Path(__file__).resolve().parent
+with (SCRIPT_DIR / 'noise_study_results.json').open() as result_file:
+    data = json.load(result_file)
 ny_vals = sorted(int(k) for k in data)
 
 ref_v   = [data[str(ny)]['classical'] for ny in ny_vals]
@@ -56,7 +59,7 @@ ax.set_title('Cost decomposition\nclassical + DQA gap + noise impact', fontsize=
 ax.set_xticks(ny_vals); ax.legend(fontsize=9); ax.grid(True, axis='y', alpha=0.4)
 
 plt.tight_layout()
-plt.savefig('noise_study_accuracy.png', dpi=150, bbox_inches='tight')
+plt.savefig(SCRIPT_DIR / 'noise_study_accuracy.png', dpi=150, bbox_inches='tight')
 print('Saved noise_study_accuracy.png')
 
 print(f"\n{'ny':>4}  {'Delta_phi':>10}  {'DQA_gap':>10}")

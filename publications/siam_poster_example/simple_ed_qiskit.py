@@ -9,12 +9,10 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'qiskit_impl')
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
+if _QISKIT_IMPL not in sys.path:
+    sys.path.insert(0, _QISKIT_IMPL)
 
 from qae import *
 import ExpValFun_functions as exp

@@ -285,11 +285,8 @@ This study uses the correct formula directly in post-processing, matching
 ## 7. Reproducibility
 
 ```bash
-# Environment
-source /nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/activate
-# or:
-/kfs3/scratch/nsawant/qiskit_env/bin/python run_noise_study.py \
-    2>&1 | tee /tmp/noise_study.log
+# Activate the environment with CUDA-Q and Qiskit, then run from the repository root:
+python qiskit_impl/run_noise_study.py 2>&1 | tee /tmp/noise_study.log
 
 # CUDA-Q target: nvidia (cuStateVec, H100)
 # cudaq version: 0.14

@@ -1,6 +1,6 @@
 # `optimizer_utils` — Foundation Utilities
 
-Shared utilities used by all optimizers in `QuantumExpectedValueFunctionProject/`.
+Shared utilities used by all optimizers in `legacy/QuantumExpectedValueFunctionProject/`.
 Provides `VariableRegister` (qubit-encoded integer with operator circuits) and
 `PowerSystem_1Bus` (problem specification container).
 

@@ -15,7 +15,7 @@ Discrete Quantum Annealing (DQA) combined with Quantum Amplitude Estimation
 
 - `qiskit_impl/`: actively maintained Qiskit implementation, including CUDA-Q
   support, tests, and implementation-specific benchmark studies.
-- `QuantumExpectedValueFunctionProject/`: legacy class-based implementation;
+- `legacy/QuantumExpectedValueFunctionProject/`: legacy class-based implementation;
   treat it as reference code because it targets older Qiskit APIs.
 - `experiments/`: standalone Qiskit and CUDA-Q benchmark sweeps. These scripts
   are run from the repository root and write outputs under `qiskit_impl/`.

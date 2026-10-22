@@ -21,7 +21,7 @@ The quantum algorithm evaluates $\mathbb{E}[C(x,\xi)]$ via QAE in $O(1/\epsilon)
 
 Two implementations exist:
 
-| | `qiskit_impl/` | `QuantumExpectedValueFunctionProject/` |
+| | `qiskit_impl/` | `legacy/QuantumExpectedValueFunctionProject/` |
 |---|---|---|
 | API style | Functional primitives + `args` dicts | Class-based OOP |
 | Encoding | Binary only | Binary or Unary |
@@ -126,7 +126,7 @@ jupyter notebook qae_example.ipynb
 
 ### Legacy / reference notebooks (original paper)
 
-These are in `QuantumExpectedValueFunctionProject/` and use an older Qiskit API (may need import fixes):
+These are in `legacy/QuantumExpectedValueFunctionProject/` and use an older Qiskit API (may need import fixes):
 
 | Notebook | Purpose |
 |---|---|
@@ -139,7 +139,7 @@ These are in `QuantumExpectedValueFunctionProject/` and use an older Qiskit API 
 ### Convergence experiment (script)
 
 ```bash
-cd QuantumExpectedValueFunctionProject
+cd legacy/QuantumExpectedValueFunctionProject
 python experiment_convergence.py
 ```
 Runs DQA convergence sweeps over annealing depth and time steps, producing the data behind Fig. 3 of the paper.

@@ -6,14 +6,15 @@ Uses N_SHOTS=256 (timing study only — physics accuracy not the goal here).
 Skips any n_y that exceeds TIMEOUT_S seconds on 1-GPU.
 
 Run on an allocated node with 2 GPUs:
-  /nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/bin/python par_benchmark.py
+  python par_benchmark.py
 """
-import os, sys, math, time, json
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_QISKIT_IMPL = '/kfs3/scratch/nsawant/quantum_stochastic_programming/qiskit_impl'
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path: sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+import sys, math, time, json
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import matplotlib
@@ -21,7 +22,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 N_SHOTS   = 256
 TIMESTEPS = 20
@@ -41,7 +42,7 @@ def make_opt(ny, nm):
         theta0.append(float(t / TIMESTEPS))
         theta0.append((1 - float(t / TIMESTEPS)) / math.pi)
     opt = CudaqQAEOptimizer(c_x=C_X, c_y=c_y, c_r=C_R, n_y=ny, w_d=w_d,
-                            cost_norm=cost_norm, noise_model=nm)
+                            norm=cost_norm * ny, noise_model=nm)
     return opt, theta0
 
 # ── 1-GPU baseline ─────────────────────────────────────────────────────────────
@@ -87,9 +88,10 @@ results = {ny: {'t1_s': round(t1_gpu[ny], 2),
                 'speedup': round(t1_gpu[ny]/t2_gpu[ny], 3),
                 'efficiency_pct': round(t1_gpu[ny]/t2_gpu[ny]/N_QPUS*100, 1)}
            for ny in NY_done}
-with open('par_benchmark_results.json', 'w') as f:
+results_path = QISKIT_IMPL_DIR / 'par_benchmark_results.json'
+with open(results_path, 'w') as f:
     json.dump(results, f, indent=2)
-print(f'\nResults → par_benchmark_results.json')
+print(f'\nResults → {results_path}')
 
 # ── 3-PANEL PLOT ──────────────────────────────────────────────────────────────
 NY    = NY_done
@@ -154,7 +156,7 @@ fig.suptitle(
     fontsize=11, y=1.01)
 
 plt.tight_layout()
-out = os.path.join(_QISKIT_IMPL, 'parallelisation_study.png')
+out = QISKIT_IMPL_DIR / 'parallelisation_study.png'
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f'Plot → {out}')
 

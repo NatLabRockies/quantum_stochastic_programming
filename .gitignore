@@ -179,8 +179,11 @@ site/
 
 .vscode/
 
-*.png
+# Generated outputs and local Julia environments. Add result files explicitly
+# when they should be versioned (for example, with `git add -f <file>`).
 *.csv
-test_results.txt
+*.json
+*.png
+*.txt
 
 Manifest.toml

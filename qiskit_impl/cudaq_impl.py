@@ -865,7 +865,7 @@ class CudaqQAEOptimizer:
 
         cudaq.set_target('nvidia')   # or 'qpp-cpu' for CPU fallback
         opt = CudaqQAEOptimizer(c_x=[3.], c_y=[0.4, 0.5, 0.7, 1.],
-                                c_r=10., n_y=4, w_d=2, cost_norm=5.)
+                                c_r=10., n_y=4, w_d=2, norm=20.)
         phi_est = opt.estimate_expected_value(thetas, shots=1000)
     """
 
@@ -1587,7 +1587,7 @@ class CudaqQAEOptimizer:
             cudaq.set_target('nvidia')
             noise = build_depolarizing_noise_model(p1=0.001, p2=0.01)
             opt = CudaqQAEOptimizer(c_x=..., c_y=..., c_r=10., n_y=6,
-                                     w_d=3, cost_norm=40., noise_model=noise)
+                                     w_d=3, norm=40., noise_model=noise)
             phi_noisy = opt.estimate_expected_value_noisy_trajectory(
                             thetas, num_trajectories=2048)
         """

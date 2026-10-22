@@ -96,8 +96,8 @@
 #   qiskit_impl/binary_optimizer.py    -- ALL execute_*() methods (TIER 1)
 #   qiskit_impl/qae.py                 -- compile_qae_circuit() runner (TIER 1)
 #   qiskit_impl/ExpValFun_functions.py -- no simulator calls, but used by qae.py
-#   QuantumExpectedValueFunctionProject/dense_optimizer.py    -- many solveAnnealing*() (TIER 1)
-#   QuantumExpectedValueFunctionProject/expanded_optimizer.py -- same pattern
+#   legacy/QuantumExpectedValueFunctionProject/dense_optimizer.py    -- many solveAnnealing*() (TIER 1)
+#   legacy/QuantumExpectedValueFunctionProject/expanded_optimizer.py -- same pattern
 #
 # DO NOT TOUCH
 # -----------
@@ -159,8 +159,6 @@ def _get_simulator(method: str = 'statevector', shots_mode: bool = False,
     except Exception:
         # Fall back to CPU statevector
         options = {'method': method, 'device': 'CPU'}
-        if shots_mode:
-            options['max_parallel_shots'] = 0
         return AerSimulator(**options)
 # ---------------------------------------------------------------------------
 

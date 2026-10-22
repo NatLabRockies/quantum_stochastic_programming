@@ -5,17 +5,17 @@
 # Mirrors cuda_q_sweep.py but dispatches via Qiskit Statevector / AerSimulator.
 
 import os, sys, math, time
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
-_QISKIT_SP   = '/nopt/nrel/apps/gpu_stack/software/qiskit/aer-gpu/venv/lib/python3.11/site-packages'
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
-for _p in [_QISKIT_SP, _QISKIT_IMPL]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-os.chdir(_QISKIT_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = REPO_ROOT / 'qiskit_impl'
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(QISKIT_IMPL_DIR) not in sys.path:
+    sys.path.insert(0, str(QISKIT_IMPL_DIR))
 
 from qiskit.quantum_info import Statevector
 from qae import QAE_Optimizer, pdf_initialize
@@ -23,7 +23,7 @@ import ExpValFun_functions as exp
 from binary_optimizer import BinaryNestedOptimizer
 
 # ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
-N_Y_VALUES = range(4, 18, 2)   # n_y values to sweep
+N_Y_VALUES = range(4, 7, 2)   # n_y values to sweep
 N_SHOTS    = 2**14             # shots for AerSimulator QAE (not used for exact SV)
 USE_EXACT_SV = False            # True: exact statevector (no shots); False: AerSimulator shots
 
@@ -176,6 +176,7 @@ ax2.grid(True, alpha=0.3)
 backend_label = 'Qiskit exact statevector (CPU)' if USE_EXACT_SV else f'Qiskit AerSimulator ({N_SHOTS} shots)'
 plt.suptitle(f'Qiskit $n_y$ sweep — {backend_label}', fontsize=12, fontweight='bold')
 plt.tight_layout()
-plt.savefig('qiskit_sweep_results.png', dpi=150)
+out_path = QISKIT_IMPL_DIR / 'qiskit_sweep_results.png'
+plt.savefig(out_path, dpi=150)
 plt.show()
-print("Plot saved to qiskit_sweep_results.png")
+print(f"Plot saved to {out_path}")
