@@ -4,7 +4,7 @@
 **Branch:** `fix/cuda-q-script`  **Commit:** `64aacbb`  
 **Hardware:** NVIDIA H100 PCIe (81 GB, CUDA 12.4)  
 **CUDA-Q version:** 0.14  
-**Script:** [`qiskit_impl/run_noise_study.py`](run_noise_study.py)
+**Script:** [`run_noise_study.py`](../../qiskit_impl/run_noise_study.py)
 
 ---
 
@@ -192,10 +192,10 @@ circuits where noise leaks significant probability into $|y| < w_d$ states.
 
 | $n_y$ | $\phi_\text{classical}$ | $\phi_\text{ideal}$ | $\varepsilon_\text{ideal}$ (%) | $\phi_\text{noisy}$ | $\Delta\phi = \phi_\text{noisy}-\phi_\text{ideal}$ |
 |--------|--------------------------|----------------------|-------------------------------|----------------------|-----------------------------------------------------|
-| 4  |  4.5125 |  4.6166 |  2.31 |  7.6544 |  3.04 |
-| 6  | 12.7806 | 12.8761 |  0.75 | 20.6255 |  7.75 |
-| 8  | 22.5526 | 22.7293 |  0.78 | 35.6980 | 12.97 |
-| 10 | 32.8557 | 33.5446 |  2.10 | 51.5785 | 18.03 |
+| 4  |  4.5125 |  4.6166 |  2.31 |  7.7071 |  3.09 |
+| 6  | 12.7806 | 12.8761 |  0.75 | 20.6029 |  7.73 |
+| 8  | 22.5526 | 22.7293 |  0.78 | 35.8830 | 13.15 |
+| 10 | 32.8557 | 33.5446 |  2.10 | 52.0520 | 18.51 |
 
 Definitions:
 - $\varepsilon = |\phi - \phi_\text{classical}| / \phi_\text{classical} \times 100\%$
@@ -203,14 +203,16 @@ Definitions:
 
 ### 5.2 Plot
 
-![Noise study result](noise_study_accuracy.png)
+The three-panel plot is included as `noise_study_accuracy.png` in this
+publication directory. It can be regenerated from the included JSON results
+without rerunning the GPU study.
 
 Three panels:
 1. **Left** — absolute $\phi$ values: classical optimum, ideal DQA (20 timesteps,
    linear ramp, noiseless), noisy DQA vs $n_y$.
 2. **Middle** — absolute noise-induced cost increase
    $\Delta\phi = \phi_\text{noisy} - \phi_\text{ideal}$ per system size;
-   monotonically increasing (3.0 → 7.7 → 13.0 → 18.0), consistent with left panel.
+   monotonically increasing (3.1 → 7.7 → 13.2 → 18.5), consistent with left panel.
 3. **Right** — stacked bar decomposition of $\phi_\text{noisy}$:
    classical optimal (blue) + DQA approximation gap (gold) + noise impact (red);
    the red segment visually grows with $n_y$, confirming the scaling seen in the left panel.
@@ -234,7 +236,7 @@ path at fixed 20 steps may not be as efficient relative to the broader landscape
 
 With `TIMESTEPS = 20` and $p_2 = 0.001$, the **absolute** noise-induced cost
 increase $\Delta\phi = \phi_\text{noisy} - \phi_\text{ideal}$ grows monotonically
-with system size: **3.0 → 7.7 → 13.0 → 18.0**. This is the physically correct
+with system size: **3.1 → 7.7 → 13.2 → 18.5**. This is the physically correct
 and consistent message — the left and middle panels are now in full agreement.
 
 The underlying mechanism is circuit-depth scaling:
@@ -293,9 +295,8 @@ python qiskit_impl/run_noise_study.py 2>&1 | tee /tmp/noise_study.log
 # Python: 3.11
 ```
 
-**Results files:**
-- `qiskit_impl/noise_study_results.json` — full numerical results + angles
-- `qiskit_impl/noise_study_accuracy.png` — three-panel figure
-- `qiskit_impl/run_noise_study.py` — reproducing script
+The publication directory contains `noise_study_results.json` (numerical
+results and angles) and `noise_study_accuracy.png` (the three-panel figure).
+The reproduction script is [`run_noise_study.py`](../../qiskit_impl/run_noise_study.py).
 
 **Commit:** `c37229b` → `fix/cuda-q-script` branch

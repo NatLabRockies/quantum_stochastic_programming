@@ -10,6 +10,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -59,7 +61,7 @@ for ny in NY_LIST:
     if ny in results:
         print(f'{ny:>4}  {2*ny:>6}  {results[ny]:>10.1f}')
 
-fname = QISKIT_IMPL_DIR / 'par_benchmark_2gpu_results.json'
+fname = RESULTS_DIR / 'par_benchmark_2gpu_results.json'
 with open(fname, 'w') as f:
     json.dump({'n_shots': N_SHOTS, 'n_gpus': N_QPUS,
                'timings': {str(ny): results[ny] for ny in NY_LIST if ny in results}}, f, indent=2)

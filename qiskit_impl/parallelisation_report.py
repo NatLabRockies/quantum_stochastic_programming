@@ -12,7 +12,12 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-OUTPUT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = (
+    Path(__file__).resolve().parents[1]
+    / 'publications'
+    / 'parallelisation'
+)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ny -> (t_1gpu, t_2gpu, t_4gpu)  None = not run / OOM
 # n_y=4-12: 1-GPU & 2-GPU from par_benchmark.py (warm GPU, nvidia mqpu target)

@@ -22,6 +22,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = REPO_ROOT / 'publications' / 'noise_study'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -225,7 +227,7 @@ ax.set_title(f'Cost decomposition\nclassical + DQA gap + noise impact', fontsize
 ax.set_xticks(ny_vals); ax.legend(fontsize=9); ax.grid(True, axis='y', alpha=0.4)
 
 plt.tight_layout()
-out_png = QISKIT_IMPL_DIR / 'noise_study_accuracy.png'
+out_png = RESULTS_DIR / 'noise_study_accuracy.png'
 plt.savefig(out_png, dpi=150, bbox_inches='tight')
 print(f'\nPlot saved → {out_png}')
 
@@ -241,7 +243,7 @@ for ny in ny_vals:
           f"{pn:>9.4f} {abs(pn-ref)/ref*100:>8.2f} {(pn-pi)/abs(pi)*100:>+13.2f}")
 
 # Save JSON
-out_json = QISKIT_IMPL_DIR / 'noise_study_results.json'
+out_json = RESULTS_DIR / 'noise_study_results.json'
 json.dump({str(ny): {
     'classical': classical_phi[ny], 'ideal': results_ideal[ny],
     'noisy': results_noisy[ny], 'thetas': optimized_thetas[ny],

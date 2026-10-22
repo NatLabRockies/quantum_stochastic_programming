@@ -19,6 +19,8 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(_local_id)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -101,7 +103,7 @@ if rank == 0:
         if ny in results_4gpu:
             print(f"{ny:>4}  {2*ny:>6}  {results_4gpu[ny]:>10.1f}")
 
-    fname = QISKIT_IMPL_DIR / 'par_benchmark_mpi_results.json'
+    fname = RESULTS_DIR / 'par_benchmark_mpi_results.json'
     with open(fname, 'w') as f:
         json.dump({'n_shots': N_SHOTS, 'n_gpus': size,
                    'timings': {str(ny): results_4gpu[ny]

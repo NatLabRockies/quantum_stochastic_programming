@@ -15,6 +15,8 @@ from pathlib import Path
 # ── path setup (before any cudaq import) ─────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -95,7 +97,7 @@ for ny in args.ny:
         results[ny] = {'error': str(e)}
 
 if rank == 0:
-    out = QISKIT_IMPL_DIR / f'bench_mgpu_dqa_{"noisy" if args.noisy else "ideal"}_gpu{ntasks}.json'
+    out = RESULTS_DIR / f'bench_mgpu_dqa_{"noisy" if args.noisy else "ideal"}_gpu{ntasks}.json'
     with open(out, 'w') as f:
         json.dump(results, f, indent=2)
     print(f'\nResults saved to {out}')

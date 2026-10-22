@@ -1,204 +1,265 @@
-# cuda_q_sweep.py
-#
-# Sweeps n_y (qubit count) using only the CUDA-Q backend.
-# Runs DQA + QAE for each n_y and plots phi estimates and wall times.
-# No classical validation — CUDA-Q only.
+"""Run a CUDA-Q DQA/QAE sweep over the number of wind-turbine qubits."""
 
+import argparse
 import csv
-import os, sys, math, time
-import numpy as np
+import math
+import os
+import sys
+import time
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.optimize import minimize
 
-# ── PATH SETUP ─────────────────────────────────────────────────────────────────
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QISKIT_IMPL_DIR = REPO_ROOT / "qiskit_impl"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(QISKIT_IMPL_DIR) not in sys.path:
+    sys.path.insert(0, str(QISKIT_IMPL_DIR))
 
-from qae import *
-from binary_optimizer import BinaryNestedOptimizer
+from qiskit_impl.cudaq_impl import CudaqQAEOptimizer
 import cudaq
-from cudaq_impl import CudaqQAEOptimizer
 
-# ── CUDA-Q TARGET ──────────────────────────────────────────────────────────────
-CUDAQ_TARGET_MODE = os.getenv('CUDAQ_TARGET_MODE', 'nvidia').strip().lower()
 
-try:
-    if CUDAQ_TARGET_MODE == 'mgpu':
-        # mgpu target handles its own MPI setup; do not call cudaq.mpi.initialize().
-        cudaq.set_target('nvidia', option='mgpu')
-        print("[cuda-q] target set to 'nvidia' (mgpu).")
-    else:
-        cudaq.set_target('nvidia')
-        print("[cuda-q] target set to 'nvidia' (single GPU).")
-except Exception as e:
-    print(f"WARNING: nvidia target unavailable ({e}), falling back to qpp-cpu.")
-    cudaq.set_target('qpp-cpu')
-
-# ── SWEEP PARAMETERS ───────────────────────────────────────────────────────────
-# N_Y_VALUES = [4, 6, 8, 10, 12]   # n_y values to sweep (must be >= 3 with x0=[2])
-N_Y_VALUES = range(4, 32, 2)
-N_SHOTS    = 2**14
-USE_COBYLA = False
-RUN_DQA    = True   # execute DQA estimation
-RUN_QAE    = False   # execute QAE estimation
-# m          = 5                    # QPE readout qubits
-m_qpe    = 5   # QPE readout qubits; estimation error ~ π·norm/2^m_qpe
-
-# Fixed first-stage parameters
-n_x = 1
-c_x = [3.]
-c_r = 10.0
-x0  = [2]    # first-stage gas commitment; w_d = n_y - sum(x0) scales with n_y
-
-# ── RESULTS STORAGE ────────────────────────────────────────────────────────────
-results = []
-
-# ── MAIN SWEEP LOOP ────────────────────────────────────────────────────────────
-for n_y in N_Y_VALUES:
-    print(f"\n{'='*60}")
-    print(f"n_y = {n_y}")
-    print(f"{'='*60}")
-
-    n_xi      = n_y
-    d         = n_y
-    c_y       = list(np.linspace(0.1, 1.0, n_y))
-    timesteps = n_y
-    w_d       = int(d - sum(x0))        # wind demand; scales as n_y grows
-    norm      = w_d * c_r               # QAE amplitude normalisation
-    cost_norm = w_d * c_r / n_y         # DQA cost operator normalisation
-
-    if w_d <= 0:
-        print(f"  Skipping n_y={n_y}: w_d={w_d} <= 0 (x0={x0} covers full demand).")
-        continue
-
-    pdf = {
-        tuple(int(v) for v in ('{0:0' + str(n_y) + 'b}').format(i)): 1 / 2**n_y
-        for i in range(2**n_y)
-    }
-
-    print(f"  c_y={[round(v,2) for v in c_y]}, w_d={w_d}, norm={norm:.1f}")
-    n_qubits_dqa = 2 * n_y
-    n_qubits_qae = m_qpe + 2 * n_y + 1   # QPE + system + ancilla
-    print(f"  Qubits: DQA={n_qubits_dqa}, QAE={n_qubits_qae}")
-
-    # ── DQA ANGLES ──────────────────────────────────────────────────────────
-    cudaq_opt = CudaqQAEOptimizer(
-        c_x=c_x, c_y=c_y, c_r=c_r,
-        n_y=n_y, w_d=w_d, norm=norm,
+def parse_args():
+    default_target = os.getenv("CUDAQ_TARGET_MODE", "nvidia").strip().lower()
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument(
+        "--n-y",
+        type=int,
+        nargs="+",
+        default=list(range(4, 32, 2)),
+        metavar="N",
+        help="wind-turbine qubit counts to run",
+    )
+    parser.add_argument(
+        "--target",
+        choices=("nvidia", "mgpu", "qpp-cpu"),
+        default=default_target,
+        help="CUDA-Q simulator target (or set CUDAQ_TARGET_MODE)",
+    )
+    parser.add_argument("--shots", type=int, default=2**14, help="shots per estimate")
+    parser.add_argument(
+        "--qpe-qubits",
+        type=int,
+        default=5,
+        help="QPE readout qubits when --qae is enabled",
+    )
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        help="DQA layers per problem size (default: n_y)",
+    )
+    parser.add_argument(
+        "--optimize",
+        action="store_true",
+        help="optimize each DQA angle schedule with COBYLA instead of using a linear ramp",
+    )
+    parser.add_argument(
+        "--qae",
+        action="store_true",
+        help="also run QAE (can be much more expensive than DQA)",
+    )
+    parser.add_argument(
+        "--save-results",
+        type=Path,
+        metavar="CSV",
+        help="write result rows to this CSV file",
+    )
+    parser.add_argument(
+        "--save-plot",
+        type=Path,
+        metavar="PNG",
+        help="save the summary plot to this path",
+    )
+    parser.add_argument("--show-plot", action="store_true", help="display the summary plot")
+    args = parser.parse_args()
+    if any(n_y < 3 for n_y in args.n_y):
+        parser.error("every --n-y value must be at least 3")
+    if args.shots < 1 or args.qpe_qubits < 1:
+        parser.error("--shots and --qpe-qubits must be positive")
+    if args.timesteps is not None and args.timesteps < 1:
+        parser.error("--timesteps must be positive")
+    return args
 
-    theta0 = []
-    for t in range(timesteps):
-        theta0.append(float(t / timesteps))
-        theta0.append((1 - float(t / timesteps)) / math.pi)
 
-    if USE_COBYLA:
-        print(f"  Optimising {len(theta0)} angles with COBYLA …")
-        opt_result = minimize(
-            lambda th: cudaq_opt.estimate_expected_value_sv(list(th), w_d),
-            theta0,
-            method='COBYLA',
-            options={'maxiter': 500, 'rhobeg': 0.5, 'disp': False},
-        )
-        Theta = list(opt_result.x)
-        print(f"  COBYLA done | phi={opt_result.fun:.4f} | {opt_result.nfev} evals")
+def run_sweep(args):
+    if args.target == "mgpu":
+        cudaq.set_target("nvidia", option="mgpu")
     else:
-        Theta = theta0
-        print(f"  Linear ramp ({len(Theta)} angles, COBYLA disabled)")
+        cudaq.set_target(args.target)
+    print(f"[cuda-q] target: {cudaq.get_target().name}")
 
-    # ── DQA EXECUTION ────────────────────────────────────────────────────────
-    dqa_phi, dqa_time = None, None
-    if RUN_DQA:
-        t0       = time.perf_counter()
-        dqa_phi  = cudaq_opt.estimate_expected_value(Theta, w_d, shots=N_SHOTS)
-        dqa_time = time.perf_counter() - t0
-        print(f"  DQA  phi(w_d={w_d}) = {dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms)")
+    results = []
+    c_x = [3.0]
+    c_r = 10.0
+    x0 = [2]
 
-    # ── QAE EXECUTION ────────────────────────────────────────────────────────
-    qae_phi, qae_time = None, None
-    if RUN_QAE:
-        t0       = time.perf_counter()
-        qae_phi  = cudaq_opt.estimate_expected_value_qae(Theta, m=m_qpe, shots=N_SHOTS)
-        qae_time = time.perf_counter() - t0
-        print(f"  QAE  phi(w_d={w_d}) = {qae_phi:.4f}  ({qae_time*1e3:.1f} ms)")
+    for n_y in args.n_y:
+        print(f"\n{'=' * 60}\nn_y = {n_y}\n{'=' * 60}")
+        d = n_y
+        c_y = list(np.linspace(0.1, 1.0, n_y))
+        timesteps = args.timesteps or n_y
+        w_d = int(d - sum(x0))
+        norm = w_d * c_r
 
-    results.append({
-        'n_y':      n_y,
-        'w_d':      w_d,
-        'dqa_phi':  dqa_phi,
-        'qae_phi':  qae_phi,
-        'dqa_time': dqa_time,
-        'qae_time': qae_time,
-    })
+        print(f"  c_y={[round(v, 2) for v in c_y]}, w_d={w_d}, norm={norm:.1f}")
+        print(f"  Qubits: DQA={2 * n_y}, QAE={args.qpe_qubits + 2 * n_y + 1}")
+        optimizer = CudaqQAEOptimizer(
+            c_x=c_x,
+            c_y=c_y,
+            c_r=c_r,
+            n_y=n_y,
+            w_d=w_d,
+            norm=norm,
+        )
+        theta = [
+            value
+            for t in range(timesteps)
+            for value in (t / timesteps, (1 - t / timesteps) / math.pi)
+        ]
+        if args.optimize:
+            print(f"  Optimizing {len(theta)} angles with COBYLA...")
+            optimization = minimize(
+                lambda angles: optimizer.estimate_expected_value_sv(list(angles), w_d),
+                theta,
+                method="COBYLA",
+                options={"maxiter": 500, "rhobeg": 0.5, "disp": False},
+            )
+            theta = list(optimization.x)
+            print(
+                f"  COBYLA done | phi={optimization.fun:.4f} "
+                f"| {optimization.nfev} evaluations"
+            )
+        else:
+            print(f"  Linear ramp ({len(theta)} angles)")
 
-# ── SUMMARY TABLE ──────────────────────────────────────────────────────────────
-print(f"\n{'='*60}")
-hdr = f"{'n_y':>6} {'w_d':>5}"
-if RUN_DQA: hdr += f" {'DQA phi':>10} {'DQA ms':>10}"
-if RUN_QAE: hdr += f" {'QAE phi':>10} {'QAE ms':>10}"
-sep = f"{'-'*6} {'-'*5}"
-if RUN_DQA: sep += f" {'-'*10} {'-'*10}"
-if RUN_QAE: sep += f" {'-'*10} {'-'*10}"
-print(hdr)
-print(sep)
-for r in results:
-    row = f"{r['n_y']:>6} {r['w_d']:>5}"
-    if RUN_DQA: row += f" {r['dqa_phi']:>10.4f} {r['dqa_time']*1e3:>10.1f}"
-    if RUN_QAE: row += f" {r['qae_phi']:>10.4f} {r['qae_time']*1e3:>10.1f}"
-    print(row)
+        dqa_phi = dqa_time = qae_phi = qae_time = None
+        start = time.perf_counter()
+        dqa_phi = optimizer.estimate_expected_value(theta, w_d, shots=args.shots)
+        dqa_time = time.perf_counter() - start
+        print(f"  DQA phi(w_d={w_d}) = {dqa_phi:.4f} ({dqa_time * 1e3:.1f} ms)")
 
-# ── PLOTS ──────────────────────────────────────────────────────────────────────
-n_y_vals = [r['n_y'] for r in results]
+        if args.qae:
+            start = time.perf_counter()
+            qae_phi = optimizer.estimate_expected_value_qae(
+                theta, m=args.qpe_qubits, shots=args.shots
+            )
+            qae_time = time.perf_counter() - start
+            print(f"  QAE phi(w_d={w_d}) = {qae_phi:.4f} ({qae_time * 1e3:.1f} ms)")
 
-fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+        results.append(
+            {
+                "n_y": n_y,
+                "w_d": w_d,
+                "dqa_phi": dqa_phi,
+                "dqa_time_s": dqa_time,
+                "qae_phi": qae_phi,
+                "qae_time_s": qae_time,
+            }
+        )
+    return results
 
-ax = axes[0]
-if RUN_DQA:
-    ax.plot(n_y_vals, [r['dqa_phi'] for r in results], '-o', label='DQA φ', color='steelblue')
-if RUN_QAE:
-    ax.plot(n_y_vals, [r['qae_phi'] for r in results], '-s', label='QAE φ', color='salmon')
-ax.set_xlabel('$n_y$ (turbine qubits)')
-ax.set_ylabel(r'$\phi(w_d)$')
-ax.set_title('Expected value vs qubit count')
-ax.legend()
-ax.grid(True, alpha=0.3)
 
-ax2 = axes[1]
-if RUN_DQA:
-    ax2.plot(n_y_vals, [r['dqa_time']*1e3 for r in results], '-o', label='DQA wall time', color='steelblue')
-if RUN_QAE:
-    ax2.plot(n_y_vals, [r['qae_time']*1e3 for r in results], '-s', label='QAE wall time', color='salmon')
-ax2.set_xlabel('$n_y$ (turbine qubits)')
-ax2.set_ylabel('Wall time (ms)')
-ax2.set_title('Wall time vs qubit count')
-ax2.legend()
-ax2.grid(True, alpha=0.3)
+def print_summary(results, run_qae):
+    columns = ["n_y", "w_d", "DQA phi", "DQA ms"]
+    if run_qae:
+        columns.extend(("QAE phi", "QAE ms"))
+    print("\n" + " ".join(f"{column:>10}" for column in columns))
+    print("-" * (11 * len(columns)))
+    for result in results:
+        row = [
+            f"{result['n_y']:>10}",
+            f"{result['w_d']:>10}",
+            f"{result['dqa_phi']:>10.4f}",
+            f"{result['dqa_time_s'] * 1e3:>10.1f}",
+        ]
+        if run_qae:
+            row.extend(
+                (
+                    f"{result['qae_phi']:>10.4f}",
+                    f"{result['qae_time_s'] * 1e3:>10.1f}",
+                )
+            )
+        print(" ".join(row))
 
-plt.suptitle('CUDA-Q $n_y$ sweep (nvidia target)', fontsize=12, fontweight='bold')
-plt.tight_layout()
-plot_path = os.path.join(_QISKIT_IMPL, 'cuda_q_sweep_results.png')
-plt.savefig(plot_path, dpi=150)
-plt.show()
-print(f"Plot saved to {plot_path}")
 
-# ── CSV OUTPUT ─────────────────────────────────────────────────────────────────
-csv_path = os.path.join(_QISKIT_IMPL, 'cuda_q_sweep_results.csv')
-fieldnames = ['n_y', 'w_d', 'dqa_phi', 'dqa_time_ms', 'qae_phi', 'qae_time_ms']
-with open(csv_path, 'w', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    for r in results:
-        writer.writerow({
-            'n_y':         r['n_y'],
-            'w_d':         r['w_d'],
-            'dqa_phi':     '' if r['dqa_phi']  is None else f"{r['dqa_phi']:.6f}",
-            'dqa_time_ms': '' if r['dqa_time'] is None else f"{r['dqa_time']*1e3:.3f}",
-            'qae_phi':     '' if r['qae_phi']  is None else f"{r['qae_phi']:.6f}",
-            'qae_time_ms': '' if r['qae_time'] is None else f"{r['qae_time']*1e3:.3f}",
-        })
-print(f"Results saved to {csv_path}")
-cudaq.mpi.finalize()
+def save_results(results, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = ("n_y", "w_d", "dqa_phi", "dqa_time_s", "qae_phi", "qae_time_s")
+    with path.open("w", newline="", encoding="utf-8") as result_file:
+        writer = csv.DictWriter(result_file, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(results)
+    print(f"Results saved to {path}")
+
+
+def make_plot(results, args):
+    n_y_vals = [result["n_y"] for result in results]
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+    axes[0].plot(
+        n_y_vals, [result["dqa_phi"] for result in results],
+        "-o", label="DQA phi", color="steelblue",
+    )
+    if args.qae:
+        axes[0].plot(
+            n_y_vals, [result["qae_phi"] for result in results],
+            "-s", label="QAE phi", color="salmon",
+        )
+    axes[0].set_xlabel("$n_y$ (turbine qubits)")
+    axes[0].set_ylabel(r"$\phi(w_d)$")
+    axes[0].set_title("Expected value vs qubit count")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(
+        n_y_vals, [result["dqa_time_s"] * 1e3 for result in results],
+        "-o", label="DQA wall time", color="steelblue",
+    )
+    if args.qae:
+        axes[1].plot(
+            n_y_vals, [result["qae_time_s"] * 1e3 for result in results],
+            "-s", label="QAE wall time", color="salmon",
+        )
+    axes[1].set_xlabel("$n_y$ (turbine qubits)")
+    axes[1].set_ylabel("Wall time (ms)")
+    axes[1].set_title("Wall time vs qubit count")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    fig.suptitle(
+        f"CUDA-Q $n_y$ sweep ({args.target} target, {args.shots} shots)",
+        fontsize=12,
+        fontweight="bold",
+    )
+    fig.tight_layout()
+    if args.save_plot:
+        args.save_plot.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(args.save_plot, dpi=150)
+        print(f"Plot saved to {args.save_plot}")
+    if args.show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def main():
+    args = parse_args()
+    results = run_sweep(args)
+    if not results:
+        print("No sweep results were produced.")
+        return
+    print_summary(results, args.qae)
+    if args.save_results:
+        save_results(results, args.save_results)
+    if args.save_plot or args.show_plot:
+        make_plot(results, args)
+
+
+if __name__ == "__main__":
+    main()

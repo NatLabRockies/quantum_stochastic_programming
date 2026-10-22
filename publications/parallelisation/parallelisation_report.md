@@ -254,8 +254,8 @@ srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \
 ```bash
 # On a GPU node (matplotlib needs display-less Agg backend):
 ssh <node1> "cd $IMPL && $PYTHON parallelisation_report.py"
-# Outputs: parallelisation_study.png
-#          parallelisation_mgpu_comparison.png
+# Outputs: publications/parallelisation/parallelisation_study.png
+#          publications/parallelisation/parallelisation_mgpu_comparison.png
 ```
 
 ### Notes for reproducibility

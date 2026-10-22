@@ -1,11 +1,15 @@
-"""Regenerate noise_study_accuracy.png from saved JSON (no GPU needed)."""
-import json, numpy as np
-from pathlib import Path, numpy as np
+"""Regenerate the noise-study figure from saved results (no GPU needed)."""
+import json
+from pathlib import Path
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-with (SCRIPT_DIR / 'noise_study_results.json').open() as result_file:
+RESULTS_DIR = (
+    Path(__file__).resolve().parents[1]
+    / 'publications'
+    / 'noise_study'
+)
+with (RESULTS_DIR / 'noise_study_results.json').open() as result_file:
     data = json.load(result_file)
 ny_vals = sorted(int(k) for k in data)
 
@@ -59,8 +63,8 @@ ax.set_title('Cost decomposition\nclassical + DQA gap + noise impact', fontsize=
 ax.set_xticks(ny_vals); ax.legend(fontsize=9); ax.grid(True, axis='y', alpha=0.4)
 
 plt.tight_layout()
-plt.savefig(SCRIPT_DIR / 'noise_study_accuracy.png', dpi=150, bbox_inches='tight')
-print('Saved noise_study_accuracy.png')
+plt.savefig(RESULTS_DIR / 'noise_study_accuracy.png', dpi=150, bbox_inches='tight')
+print(f'Saved {RESULTS_DIR / "noise_study_accuracy.png"}')
 
 print(f"\n{'ny':>4}  {'Delta_phi':>10}  {'DQA_gap':>10}")
 for i, ny in enumerate(ny_vals):

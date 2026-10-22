@@ -13,6 +13,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -88,7 +90,7 @@ results = {ny: {'t1_s': round(t1_gpu[ny], 2),
                 'speedup': round(t1_gpu[ny]/t2_gpu[ny], 3),
                 'efficiency_pct': round(t1_gpu[ny]/t2_gpu[ny]/N_QPUS*100, 1)}
            for ny in NY_done}
-results_path = QISKIT_IMPL_DIR / 'par_benchmark_results.json'
+results_path = RESULTS_DIR / 'par_benchmark_results.json'
 with open(results_path, 'w') as f:
     json.dump(results, f, indent=2)
 print(f'\nResults → {results_path}')
@@ -156,7 +158,7 @@ fig.suptitle(
     fontsize=11, y=1.01)
 
 plt.tight_layout()
-out = QISKIT_IMPL_DIR / 'parallelisation_study.png'
+out = RESULTS_DIR / 'par_benchmark_mqpu.png'
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f'Plot → {out}')
 

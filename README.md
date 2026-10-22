@@ -23,7 +23,9 @@ The work is based on
 | [`experiments/`](experiments/) | Standalone Qiskit and CUDA-Q benchmark scripts |
 | [`legacy/QuantumExpectedValueFunctionProject/`](legacy/QuantumExpectedValueFunctionProject/) | Older class-based implementation and original notebooks |
 | [`docs/`](docs/) | MkDocs documentation, algorithm guide, and API reference |
-| [`publications/`](publications/) | Publication figures, poster sources, and the SIAM poster example |
+| [`publications/`](publications/) | Publication figures, poster sources, and study reports with their results |
+| [`publications/noise_study/`](publications/noise_study/) | Noise-study report, result data, and generated figure |
+| [`publications/parallelisation/`](publications/parallelisation/) | Parallelisation report, benchmark data, and generated figures |
 | [`publications/siam_poster_example/`](publications/siam_poster_example/) | SIAM example code and its Julia project environment |
 
 The active and legacy implementations have different APIs. New Python
@@ -117,14 +119,24 @@ versions do not indicate a regression in the active implementation.
 ## Experiments and results
 
 Benchmark scripts are in [`experiments/`](experiments/); implementation-specific
-benchmarking and noise-study tools are in [`qiskit_impl/`](qiskit_impl/). These
-scripts may depend on the simulator, GPU, or HPC configuration available in
-your environment. Review a script's configuration before running it; some
-experiments can be computationally intensive.
+benchmarking and noise-study tools are in [`qiskit_impl/`](qiskit_impl/). The
+Qiskit and CUDA-Q sweeps accept command-line options; by default they print a
+summary without saving files or opening a plot:
 
-Generated benchmark data and figures are stored alongside the relevant study
-under `qiskit_impl/` or `publications/`. Local virtual environments, caches,
-and generated MkDocs output are not project dependencies.
+```bash
+python experiments/qiskit_sweep.py --n-y 4 6 --backend exact
+python experiments/cuda_q_sweep.py --n-y 4 6 --target qpp-cpu --shots 1024
+```
+
+Use `--save-results results.csv` and/or `--save-plot results.png` to request
+files, or `--show-plot` to display a plot. See `--help` for options. Some
+experiments require CUDA-Q, GPU, or HPC configuration and can be computationally
+intensive. CSV and PNG files are ignored by Git by default; use `git add -f
+<file>` if you intentionally want to version a generated result.
+
+Publication results and figures are stored alongside their reports under
+[`publications/`](publications/). Local virtual environments, caches, and
+generated MkDocs output are not project dependencies.
 
 ## Documentation site
 

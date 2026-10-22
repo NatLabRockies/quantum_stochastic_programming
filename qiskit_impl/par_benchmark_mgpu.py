@@ -16,6 +16,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QISKIT_IMPL_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = Path(__file__).resolve().parents[1] / 'publications' / 'parallelisation'
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -77,7 +79,7 @@ for ny in NY_LIST:
             print(f"  {label:10s}: FAILED — {e}")
             results[f'ny{ny}_{label}'] = {'error': str(e)}
 
-out = QISKIT_IMPL_DIR / 'bench_mgpu_results.json'
+out = RESULTS_DIR / 'bench_mgpu_results.json'
 with open(out, 'w') as f:
     json.dump(results, f, indent=2)
 print(f"\nResults saved to {out}")
