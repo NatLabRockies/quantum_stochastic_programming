@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(QISKIT_IMPL_DIR) not in sys.path:
     sys.path.insert(0, str(QISKIT_IMPL_DIR))
 
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer
+from cudaq_impl import CudaqQAEOptimizer
 import cudaq
 
 

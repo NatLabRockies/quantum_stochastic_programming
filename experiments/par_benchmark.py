@@ -12,7 +12,6 @@ import sys, math, time, json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
@@ -24,7 +23,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import cudaq
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 N_SHOTS   = 256
 TIMESTEPS = 20

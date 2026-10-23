@@ -3,7 +3,7 @@ mgpu DQA benchmark — n_y = 16, 17, 18 across all available GPUs.
 
 Each MPI rank drives one GPU; cuStateVec distributes the fp32 statevector
 across all ranks via GPU-aware MPI. Configure any site-specific MPI/GPU
-environment before launching. From qiskit_impl/:
+environment before launching. From the repository root:
 
     srun -N 2 --ntasks-per-node=4 --gpus-per-node=4 \\
         ./run_mgpu.sh \\
@@ -14,7 +14,6 @@ from pathlib import Path
 
 # ── path setup (before any cudaq import) ─────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
@@ -34,7 +33,7 @@ ntasks = int(os.environ.get('SLURM_NTASKS', 1))
 
 cudaq.set_target('nvidia', option='mgpu,fp32')
 
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()

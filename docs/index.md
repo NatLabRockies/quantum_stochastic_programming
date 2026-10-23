@@ -21,12 +21,11 @@ The quantum algorithm evaluates $\mathbb{E}[C(x,\xi)]$ via QAE in $O(1/\epsilon)
 
 Two implementations exist:
 
-| | `qiskit_impl/` | `legacy/QuantumExpectedValueFunctionProject/` |
+| Directory | Role | Status |
 |---|---|---|
-| API style | Functional primitives + `args` dicts | Class-based OOP |
-| Encoding | Binary only | Binary or Unary |
-| Qiskit version | 2.x (current) | Originally 0.x/1.x (needs import fixes) |
-| Status | Active development | Legacy / reference |
+| `qiskit_impl/` | Current Qiskit implementation, tests, and notebooks | Active |
+| `cudaq_impl/` | CUDA-Q implementation and tests | Active |
+| `legacy/QuantumExpectedValueFunctionProject/` | Original class-based implementation | Reference only |
 
 ---
 
@@ -117,7 +116,7 @@ pip install qiskit>=2.0 qiskit-aer qiskit-algorithms matplotlib scipy numpy
 
 ### Start here (active implementation)
 
-**`qiskit_impl/qae_example.ipynb`** — the main end-to-end notebook. Walks through the full algorithm (DQA + QAE) using the current `qiskit_impl/` codebase. Run this first.
+**`qiskit_impl/qae_example.ipynb`** — the main Qiskit end-to-end notebook. Walks through the full algorithm (DQA + QAE) using the current `qiskit_impl/` codebase. Run this first.
 
 ```bash
 cd qiskit_impl

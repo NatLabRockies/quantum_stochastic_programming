@@ -1,16 +1,15 @@
 """
-Tests for the CUDA-Q port in cudaq_impl.py.
+Tests for the CUDA-Q port in cudaq_impl/cudaq_impl.py.
 
 Tests each @cudaq.kernel primitive and the CudaqQAEOptimizer class.
 All tests are skipped automatically when cudaq is not installed.
 
-Run with:
-    cd qiskit_impl
-    python -m pytest test_cudaq_impl.py -v
+Run from the repository root with:
+    python -m pytest cudaq_impl/test_cudaq_impl.py -v
 
 On Kestrel with GPU compute node:
     module load qiskit    # provides cudaq via the aer-gpu venv
-    python -m pytest test_cudaq_impl.py -v --tb=short
+    python -m pytest cudaq_impl/test_cudaq_impl.py -v --tb=short
 """
 
 import json
@@ -18,8 +17,6 @@ import os
 import subprocess
 import sys
 from textwrap import dedent
-sys.path.insert(0, os.path.dirname(__file__))
-
 import math
 import numpy as np
 import pytest
@@ -620,8 +617,10 @@ import numpy as np
 import cudaq
 from cudaq_impl import (
     CudaqQAEOptimizer,
-    _a_op, _a_op_dagger, _s_chi, _s0, _mcx_helper, _grover_iterate,
     dicke_state_angles,
+)
+from cudaq_impl.cudaq_impl import (
+    _a_op, _a_op_dagger, _s_chi, _s0, _mcx_helper, _grover_iterate,
 )
 
 # ── Shared small-problem fixture ──────────────────────────────────────────────

@@ -179,14 +179,14 @@ salloc -N 2 --ntasks-per-node=2 --gpus-per-node=2 -t 4:00:00 \
 # From the login node or inside an allocation, clone the repository and
 # configure PYTHON to point to the environment with CUDA-Q and Qiskit.
 PYTHON="${PYTHON:-python}"
-IMPL="$(pwd)/qiskit_impl"
+EXPERIMENTS="$(pwd)/experiments"
 ```
 
 ### Step 2 — Single-GPU baseline (n_y = 4–14)
 
 ```bash
 # Run on one allocated GPU node
-ssh <node1> "cd $IMPL && nohup $PYTHON par_benchmark.py > /tmp/bench_1gpu.log 2>&1 &"
+ssh <node1> "nohup $PYTHON $EXPERIMENTS/par_benchmark.py > /tmp/bench_1gpu.log 2>&1 &"
 # Monitor:
 ssh <node1> "tail -f /tmp/bench_1gpu.log"
 # Expected runtime: ~15 min for n_y=4..14 at 256 shots
@@ -196,10 +196,10 @@ ssh <node1> "tail -f /tmp/bench_1gpu.log"
 
 ```bash
 # Run on one allocated GPU node (has 2 GPUs)
-ssh <node1> "cd $IMPL && nohup $PYTHON par_benchmark.py > /tmp/bench_2gpu.log 2>&1 &"
+ssh <node1> "nohup $PYTHON $EXPERIMENTS/par_benchmark.py > /tmp/bench_2gpu.log 2>&1 &"
 # par_benchmark.py already sets target='nvidia', option='mqpu' for the 2-GPU section
 # Alternatively, for n_y=14 only:
-ssh <node1> "nohup $PYTHON $IMPL/par_benchmark_2gpu.py > /tmp/bench_2gpu_ny14.log 2>&1 &"
+ssh <node1> "nohup $PYTHON $EXPERIMENTS/par_benchmark_2gpu.py > /tmp/bench_2gpu_ny14.log 2>&1 &"
 ```
 
 ### Step 4 — 4-GPU multi-node mpi4py (n_y = 10–14)
@@ -210,7 +210,7 @@ JOBID=$(squeue --me --format='%i' --noheader | head -1)
 
 srun --jobid=$JOBID \
      -N 2 --ntasks-per-node=2 --gpus-per-node=2 \
-     $PYTHON $IMPL/par_benchmark_mpi.py 2>&1 | tee /tmp/bench_4gpu.log
+     $PYTHON $EXPERIMENTS/par_benchmark_mpi.py 2>&1 | tee /tmp/bench_4gpu.log
 
 # This runs 4 MPI ranks (2 per node); each rank sets
 # CUDA_VISIBLE_DEVICES=SLURM_LOCALID before importing cudaq.
@@ -225,20 +225,20 @@ the wrapper only selects the interpreter via `PYTHON` and forwards arguments:
 
 ```bash
 JOBID=$(squeue --me --format='%i' --noheader | head -1)
-WRAPPER=$IMPL/run_mgpu.sh
+WRAPPER=$EXPERIMENTS/run_mgpu.sh
 
 # Quick GHZ smoke test (32 qubits, 2 GPUs on 1 node)
 srun --jobid=$JOBID -N 1 --ntasks=2 --gpus-per-node=2 \
-    $WRAPPER $IMPL/run_mgpu_smoke.py mgpu
+    $WRAPPER $EXPERIMENTS/run_mgpu_smoke.py mgpu
 
 # Full DQA benchmark — noiseless n_y=16,17,18 across 8 GPUs (2 nodes × 4 GPUs)
 srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \
-    $WRAPPER $IMPL/bench_mgpu_dqa.py --ny 16 17 18 --shots 256 \
+    $WRAPPER $EXPERIMENTS/bench_mgpu_dqa.py --ny 16 17 18 --shots 256 \
     2>&1 | tee /tmp/bench_mgpu_ideal.log
 
 # Noisy n_y=14 on 8 GPUs (for comparison with mpi4py)
 srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \
-    $WRAPPER $IMPL/bench_mgpu_dqa.py --ny 14 --shots 256 --noisy \
+    $WRAPPER $EXPERIMENTS/bench_mgpu_dqa.py --ny 14 --shots 256 --noisy \
     2>&1 | tee /tmp/bench_mgpu_noisy.log
 ```
 
@@ -253,7 +253,7 @@ srun --jobid=$JOBID -N 2 --ntasks-per-node=4 --gpus-per-node=4 \
 
 ```bash
 # On a GPU node (matplotlib needs display-less Agg backend):
-ssh <node1> "cd $IMPL && $PYTHON parallelisation_report.py"
+ssh <node1> "$PYTHON $EXPERIMENTS/parallelisation_report.py"
 # Outputs: publications/parallelisation/parallelisation_study.png
 #          publications/parallelisation/parallelisation_mgpu_comparison.png
 ```

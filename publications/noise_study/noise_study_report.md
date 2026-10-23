@@ -4,7 +4,7 @@
 **Branch:** `fix/cuda-q-script`  **Commit:** `64aacbb`  
 **Hardware:** NVIDIA H100 PCIe (81 GB, CUDA 12.4)  
 **CUDA-Q version:** 0.14  
-**Script:** [`run_noise_study.py`](../../qiskit_impl/run_noise_study.py)
+**Script:** [`run_noise_study.py`](../../experiments/run_noise_study.py)
 
 ---
 
@@ -66,7 +66,7 @@ vectors for each scenario; exact to floating-point precision.
 
 ### 3.1 Kernel
 
-`dqa_ansatz` from `cudaq_impl.py` — a CUDA-Q kernel implementing:
+`dqa_ansatz` from `cudaq_impl/cudaq_impl.py` — a CUDA-Q kernel implementing:
 
 1. **Initial state:** Dicke state $|D^{w_d}_{n_y}\rangle \otimes |+\rangle^{\otimes n_y}$
    (uniform superposition of all $\binom{n_y}{w_d}$ feasible $y$-configurations
@@ -116,7 +116,7 @@ t=19: (0.9500, 0.0159)
 
 **Global depolarizing noise** — independent identically distributed Pauli errors
 applied after every gate, implemented via `cudaq.NoiseModel` from
-`build_depolarizing_noise_model()` in `cudaq_impl.py`.
+`build_depolarizing_noise_model()` in `cudaq_impl/cudaq_impl.py`.
 
 ### 4.2 Single-qubit depolarizing channel $\mathcal{D}_1(p_1)$
 
@@ -178,7 +178,7 @@ $$
 
 The shortfall term $\max(0, w_d - \sum_j y_j \xi_j) \cdot c_r$ penalizes
 bitstrings where noise has caused fewer turbines to produce than demanded.
-This is essential: `_wind_scenario_cost()` in `cudaq_impl.py` **does not**
+This is essential: `_wind_scenario_cost()` in `cudaq_impl/cudaq_impl.py` **does not**
 include this penalty, causing $\phi_\text{noisy} < \phi_\text{ideal}$ for deep
 circuits where noise leaks significant probability into $|y| < w_d$ states.
 
@@ -280,7 +280,7 @@ bitstrings with few turbines committed appear artificially cheap, causing
 $\phi_\text{noisy} < \phi_\text{ideal}$ for deep circuits.
 
 This study uses the correct formula directly in post-processing, matching
-`experiments/cuda_q_script.py`. The underlying `cudaq_impl.py` bug is tracked separately.
+`experiments/cuda_q_script.py`. The underlying `cudaq_impl/cudaq_impl.py` bug is tracked separately.
 
 ---
 
@@ -288,7 +288,7 @@ This study uses the correct formula directly in post-processing, matching
 
 ```bash
 # Activate the environment with CUDA-Q and Qiskit, then run from the repository root:
-python qiskit_impl/run_noise_study.py 2>&1 | tee /tmp/noise_study.log
+python experiments/run_noise_study.py 2>&1 | tee /tmp/noise_study.log
 
 # CUDA-Q target: nvidia (cuStateVec, H100)
 # cudaq version: 0.14
@@ -297,6 +297,6 @@ python qiskit_impl/run_noise_study.py 2>&1 | tee /tmp/noise_study.log
 
 The publication directory contains `noise_study_results.json` (numerical
 results and angles) and `noise_study_accuracy.png` (the three-panel figure).
-The reproduction script is [`run_noise_study.py`](../../qiskit_impl/run_noise_study.py).
+The reproduction script is [`run_noise_study.py`](../../experiments/run_noise_study.py).
 
 **Commit:** `c37229b` → `fix/cuda-q-script` branch

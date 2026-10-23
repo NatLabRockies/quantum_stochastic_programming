@@ -5,7 +5,7 @@ cuStateVec shards the statevector across all visible GPUs automatically.
 n_y=16 → 32 qubits → 32 GB fp32 → 8 GB/GPU  (4 GPUs)
 n_y=17 → 34 qubits → 137 GB fp32 → 34 GB/GPU (4 GPUs)
 
-Launch from qiskit_impl/ after configuring any site-specific MPI/GPU environment:
+Launch from the repository root after configuring any site-specific MPI/GPU environment:
     srun --jobid=<ID> -N1 --ntasks=1 --gpus-per-node=4 \\
         ./run_mgpu.sh par_benchmark_mgpu.py 2>&1 | tee bench_mgpu.log
 
@@ -15,7 +15,6 @@ import os, sys, math, time, json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = Path(__file__).resolve().parents[1] / 'publications' / 'parallelisation'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
@@ -28,7 +27,7 @@ if os.environ.get('CUDAQ_MGPU_LIB_MPI'):
 
 import numpy as np
 import cudaq
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 cudaq.set_target('nvidia', option='mgpu,fp32')
 n_visible = cudaq.num_available_gpus()

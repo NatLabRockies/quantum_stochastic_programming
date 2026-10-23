@@ -19,8 +19,9 @@ The work is based on
 
 | Path | Contents |
 |---|---|
-| [`qiskit_impl/`](qiskit_impl/) | Actively maintained Qiskit implementation, CUDA-Q port, tests, notebooks, and implementation-specific studies |
-| [`experiments/`](experiments/) | Standalone Qiskit and CUDA-Q benchmark scripts |
+| [`qiskit_impl/`](qiskit_impl/) | Actively maintained Qiskit implementation, tests, and notebooks |
+| [`cudaq_impl/`](cudaq_impl/) | CUDA-Q implementation and tests |
+| [`experiments/`](experiments/) | Qiskit and CUDA-Q sweeps, benchmark runners, plotting tools, HPC launchers, and notebooks |
 | [`legacy/QuantumExpectedValueFunctionProject/`](legacy/QuantumExpectedValueFunctionProject/) | Older class-based implementation and original notebooks |
 | [`docs/`](docs/) | MkDocs documentation, algorithm guide, and API reference |
 | [`publications/`](publications/) | Publication figures, poster sources, and study reports with their results |
@@ -110,7 +111,7 @@ python -m pytest qiskit_impl/test_gpu_optimizer.py -v
 The CUDA-Q tests are optional and run when CUDA-Q is installed:
 
 ```bash
-python -m pytest qiskit_impl/test_cudaq_impl.py -v
+python -m pytest cudaq_impl/test_cudaq_impl.py -v
 ```
 
 The legacy tests target older Qiskit interfaces; failures under current Qiskit
@@ -118,8 +119,9 @@ versions do not indicate a regression in the active implementation.
 
 ## Experiments and results
 
-Benchmark scripts are in [`experiments/`](experiments/); implementation-specific
-benchmarking and noise-study tools are in [`qiskit_impl/`](qiskit_impl/). The
+Experiment scripts are in [`experiments/`](experiments/). The implementation
+code is organized separately in [`qiskit_impl/`](qiskit_impl/) and
+[`cudaq_impl/`](cudaq_impl/). The
 Qiskit and CUDA-Q sweeps accept command-line options; by default they print a
 summary without saving files or opening a plot:
 

@@ -18,7 +18,6 @@ _local_id = int(os.environ.get('SLURM_LOCALID', 0))
 os.environ['CUDA_VISIBLE_DEVICES'] = str(_local_id)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = REPO_ROOT / 'publications' / 'parallelisation'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
@@ -27,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np
 from mpi4py import MPI
 import cudaq
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
 comm = MPI.COMM_WORLD
 rank = comm.rank

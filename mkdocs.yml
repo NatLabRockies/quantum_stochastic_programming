@@ -37,6 +37,7 @@ plugins:
           paths:
             - .
             - qiskit_impl
+            - cudaq_impl
             - legacy
           options:
             docstring_style: google
@@ -75,13 +76,14 @@ nav:
   - Home: index.md
   - Algorithm Overview: algorithm.md
   - API Reference:
-    - qiskit_impl/:
+    - Qiskit implementation:
       - binary_optimizer: api/binary_optimizer.md
-      - cudaq_impl: api/cudaq_impl.md
       - qae: api/qae.md
       - ExpValFun_functions: api/expvalfun_functions.md
       - dist_prep: api/dist_prep.md
       - resource_estimator: api/resource_estimator.md
+    - CUDA-Q implementation:
+      - cudaq_impl: api/cudaq_impl.md
     - Legacy implementation:
       - optimizer_utils: api/optimizer_utils.md
       - dense_optimizer: api/dense_optimizer.md

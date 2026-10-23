@@ -21,7 +21,6 @@ import os, sys, math, time, json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = REPO_ROOT / 'publications' / 'noise_study'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 if str(REPO_ROOT) not in sys.path:
@@ -34,7 +33,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 import cudaq
-from qiskit_impl.cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
 
 cudaq.set_target('nvidia', option='mqpu')

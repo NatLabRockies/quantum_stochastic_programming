@@ -13,12 +13,14 @@ Discrete Quantum Annealing (DQA) combined with Quantum Amplitude Estimation
 
 ## Repository Layout
 
-- `qiskit_impl/`: actively maintained Qiskit implementation, including CUDA-Q
-  support, tests, and implementation-specific benchmark studies.
+- `qiskit_impl/`: actively maintained Qiskit implementation, tests, and notebooks.
+- `cudaq_impl/`: CUDA-Q implementation and tests.
+- `experiments/`: Qiskit and CUDA-Q sweeps, benchmark runners, plotting tools,
+  HPC launchers, and the noise-study notebook.
 - `legacy/QuantumExpectedValueFunctionProject/`: legacy class-based implementation;
   treat it as reference code because it targets older Qiskit APIs.
-- `experiments/`: standalone Qiskit and CUDA-Q benchmark sweeps. These scripts
-  are run from the repository root and write outputs under `qiskit_impl/`.
+- Run experiment scripts from the repository root; results are written only
+  when explicitly requested.
 - `publications/`: poster source, PDF, and publication figures.
 - `publications/siam_poster_example/`: SIAM poster example and supporting code.
 - `docs/`: MkDocs documentation and API reference.
@@ -46,8 +48,8 @@ From the repository root, run the primary CPU/GPU-fallback suite with:
 python -m pytest qiskit_impl/test_gpu_optimizer.py -v
 ```
 
-The CUDA-Q tests are in `qiskit_impl/test_cudaq_impl.py`; run them only when the
-configured environment supports CUDA-Q. `qiskit_impl/run_mgpu_smoke.py` is an
+The CUDA-Q tests are in `cudaq_impl/test_cudaq_impl.py`; run them only when the
+configured environment supports CUDA-Q. `experiments/run_mgpu_smoke.py` is an
 HPC/GPU smoke-test script, not a pytest test module.
 
 The legacy tests may fail collection under current Qiskit versions because the

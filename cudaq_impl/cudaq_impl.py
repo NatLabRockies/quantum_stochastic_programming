@@ -808,7 +808,7 @@ def build_depolarizing_noise_model(p1: float = 0.001,
     Example::
 
         import cudaq
-        from cudaq_impl import build_depolarizing_noise_model
+        from .cudaq_impl import build_depolarizing_noise_model
 
         cudaq.set_target('nvidia')
         noise = build_depolarizing_noise_model(p1=0.001, p2=0.01)
@@ -1582,7 +1582,7 @@ class CudaqQAEOptimizer:
         Example::
 
             import cudaq
-            from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
+            from .cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
 
             cudaq.set_target('nvidia')
             noise = build_depolarizing_noise_model(p1=0.001, p2=0.01)

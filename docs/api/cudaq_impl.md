@@ -9,7 +9,7 @@ run natively on NVIDIA GPUs via cuStateVec.
 
 ## Optimizer Class
 
-::: qiskit_impl.cudaq_impl.CudaqQAEOptimizer
+::: cudaq_impl.cudaq_impl.CudaqQAEOptimizer
 
 ---
 
@@ -17,47 +17,47 @@ run natively on NVIDIA GPUs via cuStateVec.
 
 ### `pdf_init_uniform`
 
-::: qiskit_impl.cudaq_impl.pdf_init_uniform
+::: cudaq_impl.cudaq_impl.pdf_init_uniform
 
 ---
 
 ### `ccry`
 
-::: qiskit_impl.cudaq_impl.ccry
+::: cudaq_impl.cudaq_impl.ccry
 
 ---
 
 ### `dicke_state_n4_k2`
 
-::: qiskit_impl.cudaq_impl.dicke_state_n4_k2
+::: cudaq_impl.cudaq_impl.dicke_state_n4_k2
 
 ---
 
 ### `cost_operator`
 
-::: qiskit_impl.cudaq_impl.cost_operator
+::: cudaq_impl.cudaq_impl.cost_operator
 
 ---
 
 ### `fswap_power`
 
-::: qiskit_impl.cudaq_impl.fswap_power
+::: cudaq_impl.cudaq_impl.fswap_power
 
 ---
 
 ### `mixer`
 
-::: qiskit_impl.cudaq_impl.mixer
+::: cudaq_impl.cudaq_impl.mixer
 
 ---
 
 ### `oracle_sin`
 
 
-::: qiskit_impl.cudaq_impl.oracle_sin
+::: cudaq_impl.cudaq_impl.oracle_sin
 
 ---
 
 ### `dqa_ansatz`
 
-::: qiskit_impl.cudaq_impl.dqa_ansatz
+::: cudaq_impl.cudaq_impl.dqa_ansatz
