@@ -21,6 +21,7 @@ The work is based on
 |---|---|
 | [`qiskit_impl/`](qiskit_impl/) | Actively maintained Qiskit implementation, tests, and notebooks |
 | [`cudaq_impl/`](cudaq_impl/) | CUDA-Q implementation and tests |
+| [`classical/`](classical/) | Quantum-independent exact reference costs and brute-force solvers |
 | [`experiments/`](experiments/) | Qiskit and CUDA-Q sweeps, benchmark runners, plotting tools, HPC launchers, and notebooks |
 | [`legacy/QuantumExpectedValueFunctionProject/`](legacy/QuantumExpectedValueFunctionProject/) | Older class-based implementation and original notebooks |
 | [`docs/`](docs/) | MkDocs documentation, algorithm guide, and API reference |
@@ -102,10 +103,17 @@ print("DQA estimate at wind_demand=1:", dqa_estimate)
 
 ## Tests
 
-Run the primary Qiskit test suite from the repository root:
+Run the standalone classical reference tests from the repository root:
 
 ```bash
-python -m pytest qiskit_impl/test_circuit_builders.py qiskit_impl/test_gpu_optimizer.py -v
+python -m pytest classical/test_reference.py -v
+```
+
+The classical package uses only the Python standard library; its tests require
+pytest but no quantum SDKs. Run the Qiskit and classical-compatibility suites with:
+
+```bash
+python -m pytest qiskit_impl/test_classical_reference.py qiskit_impl/test_circuit_builders.py qiskit_impl/test_gpu_optimizer.py -v
 ```
 
 The circuit-builder tests use exact statevectors and operators to characterize
@@ -122,6 +130,27 @@ python -m pytest cudaq_impl/test_cudaq_impl.py -v
 
 The legacy tests target older Qiskit interfaces; failures under current Qiskit
 versions do not indicate a regression in the active implementation.
+
+## Classical references without quantum libraries
+
+```python
+from classical import wind_demand_costs, first_stage_objective
+
+pdf = {(0, 0): 0.1, (1, 0): 0.2, (0, 1): 0.3, (1, 1): 0.4}
+costs = wind_demand_costs([1.0, 3.0], 10.0, pdf, demand=2)
+objective = first_stage_objective(4.0, [1.0, 3.0], 10.0, pdf, demand=2)
+# costs: [0.0, 2.5, 9.7]; objective: {2: 8.0, 1: 6.5, 0: 9.7}
+```
+
+These references optimize the turbine decision separately for each wind
+scenario, then take the expectation. They are not costs of a single fixed
+decision or of a sampled quantum distribution. The optimizer's existing
+classical methods delegate to these functions.
+
+Wind demands exceeding the turbine count now return infinite cost (and an
+empty optimal decision), rather than the old artificial finite sentinel.
+Feasible costs are no longer clipped by that sentinel. Ties still choose the
+lexicographically first decision. See the [classical API](docs/api/classical.md).
 
 ## Experiments and results
 

@@ -106,6 +106,12 @@
 # =============================================================================
 
 import sys
+from classical import (
+    first_stage_objective,
+    scenario_cost,
+    solve_scenario,
+    wind_demand_costs,
+)
 
 import numpy as np
 import scipy
@@ -261,12 +267,9 @@ class BinaryNestedOptimizer:
 
         This is q(x, y, xi) from Eq. (2) of the paper.
         """
-        true_output = np.array(wind_output)*np.array(scenario)
-        cost = sum(np.array(self.wind_costs) * true_output)
-        #print(true_output, wind_output, scenario)
-        if sum(true_output) < wind_demand:
-            cost += (wind_demand - sum(true_output))*self.recourse_cost
-        return cost
+        return scenario_cost(
+            wind_output, scenario, wind_demand, self.wind_costs, self.recourse_cost
+        )
 
     def bstr_to_output(self, bstr):
         ''' convert a bitstring to the list of integers '''
@@ -288,6 +291,8 @@ class BinaryNestedOptimizer:
         This is the benchmark target.  Real DQA produces an approximation
         (residual temperature delta > 0 means some amplitude leaks to sub-optimal states).
         """
+        if wind_demand < 0 or wind_demand > self.num_wind_vars:
+            raise ValueError("Cannot prepare a reference state for infeasible wind demand")
         wvfn = np.zeros(2**(2*self.num_wind_vars))
         # use the min_scenario to get the best decision for each scenario
         for scenario,pr in self.pdf.items():
@@ -312,20 +317,11 @@ class BinaryNestedOptimizer:
             y*(xi) = argmin_{y : sum(y)=wind_demand}  q(y, xi)
 
         Returns: (min_cost, optimal_turbine_decision_tuple)
+        Infeasible wind demand returns (infinity, ()).
         """
-        min_wind_cost = self.recourse_cost*self.demand+1
-        min_wind_decision = []
-        # if we have not made a list of wind outputs, make the list
-        if self.all_wind_outputs_list is None:
-            self.gen_all_wind_outputs()
-        for wind_output in self.all_wind_outputs_list:
-            if sum(wind_output) == wind_demand:
-                cost = self.wind_scenario_cost(wind_output, scenario, wind_demand)
-                # NOTE: if we want to track all solns, including degenerate ones, this is where
-                if cost < min_wind_cost:
-                    min_wind_decision = wind_output
-                    min_wind_cost = cost
-        return min_wind_cost,tuple(min_wind_decision)
+        return solve_scenario(
+            wind_demand, scenario, self.wind_costs, self.recourse_cost
+        )
 
     def brute_force_wind_demand_expectation_values(self):
         """Compute the classical exact expected cost for every possible wind demand.
@@ -339,18 +335,11 @@ class BinaryNestedOptimizer:
 
         Returns:
             List of floats `[phi(0), phi(1), ..., phi(demand)]`.
+            Demands above the turbine count have infinite cost.
         """
-        demand_surface = []
-        # check each integer demand which we could expect the wind turbines to fulfill
-        for wind_demand in range(self.demand+1):
-            # brute force the expectation value
-            expectation_val = 0.
-            for scenario,pr in self.pdf.items():
-                # for each output that satisfies the demand            
-                min_wind_cost,min_wind_decision = self.min_scenario(wind_demand, scenario)
-                expectation_val += pr*min_wind_cost
-            demand_surface.append(expectation_val)
-        return demand_surface
+        return wind_demand_costs(
+            self.wind_costs, self.recourse_cost, self.pdf, self.demand
+        )
 
     def brute_force_energy_surface(self):
         """Compute the full first-stage objective function over all gas levels.
@@ -364,12 +353,10 @@ class BinaryNestedOptimizer:
         Returns:
             Dict `{gas_level: objective_value}` — the classical optimal is `min(o.values())`.
         """
-        obj_x = {}
-        wind_demand_surface = self.brute_force_wind_demand_expectation_values()
-        for wind_demand,expectation_value in enumerate(wind_demand_surface):
-            gas_level = self.demand-wind_demand
-            obj_x[gas_level] = gas_level*self.gas_costs[0] + expectation_value
-        return obj_x
+        return first_stage_objective(
+            self.gas_costs[0], self.wind_costs, self.recourse_cost,
+            self.pdf, self.demand,
+        )
 
 
     ## quantum helpers

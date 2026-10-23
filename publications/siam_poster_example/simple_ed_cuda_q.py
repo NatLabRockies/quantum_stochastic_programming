@@ -10,14 +10,9 @@ from scipy.optimize import minimize
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
-
-from qae import *
-from binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 import cudaq
 from cudaq_impl import CudaqQAEOptimizer
 from simple_ed_helper import TwoStageOptHelper
@@ -82,10 +77,9 @@ print(f"n_y={n_y}, w_d={w_d}, m_qpe={m_qpe}, norm={norm:.1f}")
 print(f"Qubits: DQA={n_qubits_dqa}, QAE={n_qubits_qae}")
 
 # ── CLASSICAL BASELINE ─────────────────────────────────────────────────────────
-bno          = BinaryNestedOptimizer(c_x, c_y_eff, c_r, pdf, d, is_uniform=True)
-exp_vals     = bno.brute_force_wind_demand_expectation_values()
+exp_vals     = wind_demand_costs(c_y_eff, c_r, pdf, d)
 classical_phi = exp_vals[w_d]
-obj_surface  = [bno.gas_costs[0] * x + exp_vals[d - x] for x in range(x_min, d + 1)]
+obj_surface  = [c_x[0] * x + exp_vals[d - x] for x in range(x_min, d + 1)]
 
 print(f"\nClassical phi(wind_demand): {[round(v, 3) for v in exp_vals]}")
 print(f"Classical phi(w_d={w_d}): {classical_phi:.4f}")
@@ -237,8 +231,7 @@ for _sweep_mode in SWEEP_INTERP_MODES:
         _d_int  = int(math.floor(d_val))
         _pdf_d  = {tuple(int(v) for v in ('{0:0'+str(n_y)+'b}').format(i)): 1/2**n_y
                    for i in range(2**n_y)}
-        _bno_d  = BinaryNestedOptimizer(c_x, c_y_eff, c_r, _pdf_d, _d_int, is_uniform=True)
-        _exp_d  = _bno_d.brute_force_wind_demand_expectation_values()
+        _exp_d  = wind_demand_costs(c_y_eff, c_r, _pdf_d, _d_int)
         _xr_d   = list(range(int(_xlo), _d_int + 1))
         _obj_cl = [_sh.fs_cost(float(xv)) + _exp_d[_d_int - xv] for xv in _xr_d]
         cl_x_s  = _xr_d[int(np.argmin(_obj_cl))]
@@ -408,6 +401,5 @@ out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'simple_ed_cu
 plt.savefig(out_png, dpi=150)
 plt.show()
 print(f"Plot saved to {out_png}")
-
 
 

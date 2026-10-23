@@ -21,14 +21,13 @@ try:
 except ImportError as exc:
     raise RuntimeError("cudaq is required to run this script.") from exc
 
-# Path setup to match simple_ed scripts
+# Add the repository root for the quantum-independent classical reference.
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, "qiskit_impl")
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-from binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 
 ## UC Parameters ##
 
@@ -233,8 +232,7 @@ def _build_exact_thetas_wd(w_d_val: int, norm: float) -> list[float]:
 
 def classical_truth() -> tuple[float, np.ndarray]:
     """Return classical phi(w_d) and gradient vector consistent with this table."""
-    bno = BinaryNestedOptimizer(C_X, C_Y_EFF, C_R, PDF, D, is_uniform=True)
-    exp_vals = bno.brute_force_wind_demand_expectation_values()
+    exp_vals = wind_demand_costs(C_Y_EFF, C_R, PDF, D)
     phi = float(exp_vals[W_D])
 
     # Expectation of our scenario gradient table across uniform scenarios.
@@ -1711,8 +1709,7 @@ def optimization_test(schedule: tuple[int, ...], shots: int):
                     tuple(int(v) for v in ('{0:0' + str(N_Y) + 'b}').format(i)): 1.0 / 2**N_Y
                     for i in range(2**N_Y)
                 }
-                _bno_d   = BinaryNestedOptimizer(C_X, C_Y_EFF, C_R, _pdf_d, _d_int, is_uniform=True)
-                _exp_d   = _bno_d.brute_force_wind_demand_expectation_values()
+                _exp_d   = wind_demand_costs(C_Y_EFF, C_R, _pdf_d, _d_int)
                 _xr_d    = list(range(int(_xlo), _d_int + 1))
                 _obj_cl  = [_sh.fs_cost(float(xv)) + _exp_d[_d_int - xv] for xv in _xr_d]
                 cl_x_s   = float(_xr_d[int(np.argmin(_obj_cl))]) if _obj_cl else float('nan')

@@ -11,6 +11,8 @@ from scipy.optimize import minimize
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 if _QISKIT_IMPL not in sys.path:
     sys.path.insert(0, _QISKIT_IMPL)
 

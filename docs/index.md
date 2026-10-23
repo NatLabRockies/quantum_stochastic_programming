@@ -25,6 +25,7 @@ Two implementations exist:
 |---|---|---|
 | `qiskit_impl/` | Current Qiskit implementation, tests, and notebooks | Active |
 | `cudaq_impl/` | CUDA-Q implementation and tests | Active |
+| `classical/` | Exact reference costs and solvers without quantum dependencies | Active |
 | `legacy/QuantumExpectedValueFunctionProject/` | Original class-based implementation | Reference only |
 
 ---

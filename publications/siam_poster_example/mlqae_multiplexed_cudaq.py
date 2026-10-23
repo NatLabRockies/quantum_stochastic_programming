@@ -22,14 +22,13 @@ except ImportError as exc:
 
 
 
-# Add the repository's Qiskit implementation without changing the working
+# Add the repository root without changing the working
 # directory or depending on a machine-specific environment path.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, "qiskit_impl")
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-from binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 
 
 
@@ -158,8 +157,7 @@ def build_oracle_angles(f_full: np.ndarray, f_min: float, f_max: float) -> np.nd
 
 def classical_truth() -> tuple[float, np.ndarray]:
     """Return classical phi(w_d) and gradient vector consistent with this table."""
-    bno = BinaryNestedOptimizer(C_X, C_Y_EFF, C_R, PDF, D, is_uniform=True)
-    exp_vals = bno.brute_force_wind_demand_expectation_values()
+    exp_vals = wind_demand_costs(C_Y_EFF, C_R, PDF, D)
     phi = float(exp_vals[W_D])
 
     # Expectation of our scenario gradient table across uniform scenarios.

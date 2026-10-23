@@ -10,7 +10,7 @@ Mirrors ``experiments/cuda_q_script.py`` exactly:
   NOTE: timesteps=20 so all system sizes have equal DQA expressivity.
         With timesteps=n_y, small systems had too few steps and lack
         of expressivity dominated over noise — an unfair comparison.
-  classical  = BinaryNestedOptimizer.brute_force_wind_demand_expectation_values()
+  classical  = classical.wind_demand_costs()
   ideal eval = estimate_expected_value_sv(Theta, w_d)
   noisy eval = estimate_expected_value(Theta, w_d, shots=N_SHOTS) — constraint-aware sampling
 
@@ -34,7 +34,7 @@ from scipy.optimize import minimize
 
 import cudaq
 from cudaq_impl import CudaqQAEOptimizer, build_depolarizing_noise_model
-from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 
 cudaq.set_target('nvidia', option='mqpu')
 N_QPUS = cudaq.num_available_gpus()
@@ -77,14 +77,11 @@ for ny in N_Y_LIST:
           f'#params={len(theta0)}  c_y={[round(c,3) for c in c_y]}')
 
 # ── CLASSICAL REFERENCE (matches the CUDA-Q script) ─────────────────────────
-# Uses BinaryNestedOptimizer.brute_force_wind_demand_expectation_values(), the
-# same source of truth as the CUDA-Q script.
-print('\n── Classical reference (BinaryNestedOptimizer) ──')
+# Uses the quantum-independent exact reference shared with the optimizer.
+print('\n── Classical reference ──')
 classical_phi = {}
 for ny, cfg in CONFIGS.items():
-    bno = BinaryNestedOptimizer(C_X, cfg['c_y'], C_R, cfg['pdf'],
-                                ny, is_uniform=True)
-    exp_vals = bno.brute_force_wind_demand_expectation_values()
+    exp_vals = wind_demand_costs(cfg['c_y'], C_R, cfg['pdf'], ny)
     classical_phi[ny] = exp_vals[cfg['w_d']]
     print(f'  n_y={ny:2d}  w_d={cfg["w_d"]}  φ_classical={classical_phi[ny]:.4f}')
 

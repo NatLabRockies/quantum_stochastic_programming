@@ -76,6 +76,7 @@ nav:
   - Home: index.md
   - Algorithm Overview: algorithm.md
   - API Reference:
+    - Classical references: api/classical.md
     - Qiskit implementation:
       - binary_optimizer: api/binary_optimizer.md
       - qae: api/qae.md
