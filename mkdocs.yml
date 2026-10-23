@@ -78,6 +78,7 @@ nav:
   - API Reference:
     - Classical references: api/classical.md
     - Qiskit implementation:
+      - Shared circuits: api/circuits.md
       - binary_optimizer: api/binary_optimizer.md
       - qae: api/qae.md
       - ExpValFun_functions: api/expvalfun_functions.md

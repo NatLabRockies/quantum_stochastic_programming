@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 from qiskit_aer import AerSimulator
+import binary_optimizer as optimizer_module
 from binary_optimizer import BinaryNestedOptimizer, _get_simulator
 
 # ---------------------------------------------------------------------------
@@ -41,6 +42,20 @@ C_R  = 10.0
 NORM = 5.0
 TIME = 4
 STEPS = 4
+
+
+@pytest.fixture(autouse=True)
+def bounded_cpu_simulator_threads(monkeypatch):
+    """Avoid native thread contention in mixed CUDA-Q/Aer test runs."""
+    original = optimizer_module._get_simulator
+
+    def get_simulator(*args, **kwargs):
+        simulator = original(*args, **kwargs)
+        if simulator.options.device == "CPU":
+            simulator.set_options(max_parallel_threads=1)
+        return simulator
+
+    monkeypatch.setattr(optimizer_module, "_get_simulator", get_simulator)
 
 
 @pytest.fixture(scope='module')
@@ -110,6 +125,30 @@ class TestGetSimulator:
 # =============================================================================
 
 class TestExecuteOptimizer:
+    def test_nonuniform_pdf_dqa_and_qae_execution(self):
+        optimizer = BinaryNestedOptimizer(
+            [1.0], [0.4], 0.8, {(0,): 0.25, (1,): 0.75},
+            1, is_uniform=False,
+        )
+        preparation = optimizer.adiabatic_evolution_circuit(
+            wind_demand=1, time=4, time_steps=2, norm=1.0
+        )
+        counts = optimizer.execute_optimizer(preparation.copy())
+        assert counts.get("01", 0) == pytest.approx(0.25, abs=1e-10)
+        assert counts.get("11", 0) == pytest.approx(0.75, abs=1e-10)
+        assert optimizer.process_expectation_value_optimizer(
+            1, counts
+        ) == pytest.approx(0.5, abs=1e-10)
+
+        oracle = optimizer.single_oracle_asin_inconstraint(norm=1.0)
+        qae = optimizer.implemented_qae(
+            preparation, oracle, preparation.inverse(), oracle.inverse(), 2, 1.0
+        )
+        readout = optimizer.execute_qae(qae, 2)
+        assert readout.get("01", 0) == pytest.approx(0.5, abs=1e-10)
+        assert readout.get("11", 0) == pytest.approx(0.5, abs=1e-10)
+        assert sum(readout.values()) == pytest.approx(1.0, abs=1e-10)
+
     def test_statevector_returns_prob_dict(self, bno, dqa_circuit):
         counts = bno.execute_optimizer(dqa_circuit.copy())
         assert isinstance(counts, dict)

@@ -106,6 +106,9 @@
 # =============================================================================
 
 import sys
+from qiskit_impl import circuits as circuit_builders
+from qiskit_impl.dist_prep import build_pdf_circuit
+from qiskit_impl.qae import build_qae_circuit
 from classical import (
     first_stage_objective,
     scenario_cost,
@@ -121,11 +124,9 @@ import matplotlib.pyplot as plt
 
 from qiskit import QuantumCircuit#, Aer
 from qiskit_aer import Aer, AerSimulator
-from qiskit.circuit.library import Initialize
 from qiskit.compiler import transpile
 #from qiskit.tools.visualization import plot_histogram
-from qiskit.circuit.library.standard_gates import SwapGate, RYGate, ZGate
-from qiskit.circuit.library import QFTGate
+from qiskit.circuit.library.standard_gates import RYGate
 try:
     from qiskit_algorithms import EstimationProblem  # optional: pip install qiskit-algorithms
 except ImportError:
@@ -413,31 +414,9 @@ class BinaryNestedOptimizer:
 
         Gate count: O(n*k)  with no ancilla, depth O(n).
         """
-        qc = QuantumCircuit(self.num_wind_vars, name='DickeState')
+        qc = circuit_builders.dicke_state_circuit(self.num_wind_vars, weight)
         if weight == 0:
             return qc
-        def SCS(n,k):
-            scs = QuantumCircuit(k+1)
-            ni = k#n-k+1
-            scs.cx(ni-1, ni)
-            scs.cry(2*np.arccos(np.sqrt(1/n)), ni, ni-1)
-            scs.cx(ni-1, ni)
-            for l in range(2,k+1):
-                scs.cx(ni-l, ni)
-                scs.append(RYGate(2*np.arccos(np.sqrt(l/n))).control(2), [ni, ni-l+1, ni-l])
-                #scs.ccry(2*np.arccos(np.sqrt(l/n)), ni, ni-l+1, ni-l)
-                scs.cx(ni-l, ni)
-            return scs.to_gate()
-        for i in range(weight):# range(self.num_wind_vars - weight - 1, self.num_wind_vars):
-            qc.x(self.num_wind_vars-i-1)
-        # n-k applications
-        for i in range(self.num_wind_vars - weight):
-            qc.append(SCS(self.num_wind_vars-i,weight), list(range(self.num_wind_vars-i-weight-1,self.num_wind_vars-i)))
-        # last k
-        for i in range(weight-1,0,-1):
-            #print(i+1, i)
-            qc.append(SCS(i+1, i), list(range(i+1)))
-        #print(qc)
         return qc.to_gate()
 
     def pdf_initialize(self):
@@ -449,27 +428,14 @@ class BinaryNestedOptimizer:
         Two cases:
 
         - `is_uniform=True`: $n$ Hadamard gates — $O(n)$ circuit depth.
-        - `is_uniform=False`: Qiskit `Initialize` — $O(2^n)$ gates after transpile.
+        - `is_uniform=False`: unitary Qiskit `StatePreparation` — $O(2^n)$ gates after transpile.
 
         Returns:
             Gate object (via `.to_gate()`) acting on `num_wind_vars` qubits.
         """
-        qc = QuantumCircuit(self.num_wind_vars, name=r'$|\mathcal{P}\rangle$')
-        if self.is_uniform:#np.isclose(list(self.pdf.values()), [1/2**self.num_wind_vars]*2**self.num_wind_vars).all():
-            for i in range(self.num_wind_vars):
-                qc.h(i)
-        else:
-            wvfn = np.zeros(2**self.num_wind_vars)
-            for scenario, pr in self.pdf.items():
-                bstr = ''.join([str(i) for i in scenario])
-                wvfn[int(bstr[::-1], 2)] = np.sqrt(pr)
-            qc.append(Initialize(wvfn), list(range(self.num_wind_vars)))
-            #qc.initialize(wvfn)#, list(range(self.))) 
-            #simulator = Aer.get_backend('statevector_simulator')         
-            gates = ['u', 'p', 'x', 'y', 'z', 'h', 'rx', 'ry', 'rz', 's', 'sdg', 't', 'tdg', 'sx', 'sxdg', 'cx']
-            qc = transpile(qc, basis_gates=gates)
-        #qc = circuit_to_gate(qc)
-        return qc.to_gate()
+        return build_pdf_circuit(
+            self.num_wind_vars, self.pdf, uniform=self.is_uniform
+        ).to_gate()
 
     def cost_operator(self, amplitude, constraint_amplitude, norm):
         """
@@ -497,15 +463,9 @@ class BinaryNestedOptimizer:
         `norm`                 = normalization factor (prevents phase wrapping)
         Corresponds to U_q in Eq. (42) of the paper.
         """
-        qc = QuantumCircuit(self.num_wind_vars*2, name=r'$U_q({})$'.format(np.round(amplitude, 3)))
-        for q_w,cost in enumerate(self.wind_costs):
-            q_pdf = self.pdf_qubits[q_w]
-            qc.cp(amplitude*cost/norm, q_pdf, q_w)
-
-            qc.x(q_pdf)
-            qc.cp(amplitude*constraint_amplitude/norm, q_pdf, q_w)
-            qc.x(q_pdf)
-        return qc
+        return circuit_builders.cost_operator(
+            amplitude, self.wind_costs, constraint_amplitude, norm, self.pdf_qubits
+        )
 
     def demand_constraint_preserving_mixer(self, amplitude):
         """
@@ -527,13 +487,9 @@ class BinaryNestedOptimizer:
         evolution within the feasible subspace  {y : sum(y) = wind_demand}.
         Corresponds to U_d (Eq. 39) of the paper.
         """
-        qc = QuantumCircuit(self.num_wind_vars, name=r'$U_d({})$'.format(np.round(amplitude, 3)))
-        layers = 1
-        for layer in range(layers):
-            for qj in self.wind_qubits:
-                for qk in self.wind_qubits[qj+1:]:
-                    qc.append(SwapGate().power(amplitude/layers), [qj, qk])
-        return qc
+        return circuit_builders.demand_constraint_preserving_mixer(
+            amplitude, self.wind_qubits
+        )
 
     def cost_scenario_operator(self, scenario, amplitude, constraint_amplitude, norm):
         """Build the single-scenario cost (phase) operator for a fixed wind scenario.
@@ -558,13 +514,9 @@ class BinaryNestedOptimizer:
         Returns:
             QuantumCircuit acting on `num_wind_vars` qubits.
         """
-        qc = QuantumCircuit(self.num_wind_vars)
-        for q_w, cost in enumerate(self.wind_costs):
-            if scenario[q_w] == 0:
-                qc.p(amplitude*constraint_amplitude/norm, q_w)
-            else:
-                qc.p(amplitude*cost/norm, q_w)
-        return qc
+        return circuit_builders.cost_scenario_operator(
+            amplitude, self.wind_costs, constraint_amplitude, norm, scenario
+        )
 
     def adiabatic_evolution_circuit(self, wind_demand, time, time_steps, norm):
         """
@@ -677,35 +629,9 @@ class BinaryNestedOptimizer:
           4. IQFT on estimate qubits  ->  phase -> readable integer b
           Measurement: b -> ? = sin^2(b.pi/2^m) -> phi?(x) = ?.norm
         """
-        ancilla = m+2*self.num_wind_vars
-        qc = QuantumCircuit(2*self.num_wind_vars+1+m)
-        for i in range(m):
-            qc.h(i)
-        qc.append(op, list(range(m, m+2*self.num_wind_vars)))
-        qc.append(oracle, list(range(m, m+2*self.num_wind_vars+1)))
-        for i in range(m):
-            for j in range(2**i):
-                qc.x(ancilla)
-                qc.cz(i,ancilla)
-                qc.x(ancilla)
-                # invert
-                # A^-1
-                qc.append(oracle_inv.control(1), [i]+list(range(m, ancilla+1)))
-                qc.append(op_inv.control(1), [i]+list(range(m, ancilla)))
-                # |000...><000...|
-                for q in range(m,ancilla):
-                    qc.x(q)
-                qc.x(ancilla)
-                qc.append(ZGate().control(2*self.num_wind_vars+1), [i]+list(range(m, ancilla+1)))
-                for q in range(m,ancilla):
-                    qc.x(q)
-                qc.x(ancilla)
-                # A
-                qc.append(op.control(1), [i]+list(range(m, ancilla)))
-                qc.append(oracle.control(1), [i]+list(range(m, ancilla+1)))
-        qc.append(QFTGate(m).inverse(), list(range(m)))
-        #print(qc)
-        return qc
+        return build_qae_circuit(
+            op, oracle, op_inv, oracle_inv, self.num_wind_vars, m
+        )
 
     def canonical_qae(self, Uopt, oracle, m, c, norm):
         ''' use qiskit tools to setup estimator NOTE still need to setup '''
@@ -832,21 +758,11 @@ class BinaryNestedOptimizer:
         `c`    = cost normalization scalar  (controls scale = pi.c/norm)
         `norm` = maximum cost  (prevents ancilla from over-rotating past pi/2)
         """
-        qc = QuantumCircuit(self.num_wind_vars*2 + 1, name='F')
-        ancilla = self.num_wind_vars*2
-        scale = np.pi*c/norm
-        if inverse:
-            scale *= -1
-        for q in self.wind_qubits:
-            theta_cy = self.wind_costs[q] * scale 
-            theta_cr = self.recourse_cost * scale
-
-            qc.append(RYGate(theta_cy).control(2), [q, self.pdf_qubits[q], ancilla])
-
-            qc.x(self.pdf_qubits[q])
-            qc.append(RYGate(theta_cr).control(2), [q, self.pdf_qubits[q], ancilla])
-            qc.x(self.pdf_qubits[q])
-        return qc
+        return circuit_builders.cost_oracle(
+            self.wind_costs, self.recourse_cost, norm,
+            self.wind_qubits, self.pdf_qubits,
+            encoding="linear", scale=c, inverse=inverse,
+        )
 
     def grover_operator_sin_inconstraint(self, power, c, norm):
     #    ''' do the grover operator to a power for the arcsin+in constraint oracle '''
@@ -903,28 +819,11 @@ class BinaryNestedOptimizer:
         Returns:
             QuantumCircuit on `2*num_wind_vars + 1` qubits (system + ancilla).
         """
-        # compute the oracle onto an ancilla qubit - arcsin approximate
-        qc = QuantumCircuit(self.num_wind_vars*2 + 1, name='F')
-        ancilla = self.num_wind_vars*2
-        for q in self.wind_qubits:
-            cq = self.wind_costs[q]/norm
-            cr = self.recourse_cost/norm
-            #theta_cy = cq/norm*np.pi#2*np.arcsin(np.sqrt(cq))
-            #theta_cr = cr/norm*np.pi#2*np.arcsin(np.sqrt(cr))
-            theta_cy = 2*np.arcsin(np.sqrt(cq))
-            theta_cr = 2*np.arcsin(np.sqrt(cr))
-            if inverse:
-                theta_cy *= -1
-                theta_cr *= -1
-
-            qc.append(RYGate(theta_cy).control(2), [q, self.pdf_qubits[q], ancilla])
-            #qc.cry(theta_cy, q, ancilla)
-
-            qc.x(self.pdf_qubits[q])
-            qc.append(RYGate(theta_cr).control(2), [q, self.pdf_qubits[q], ancilla])
-            qc.x(self.pdf_qubits[q])
-        return qc
-        # 0
+        return circuit_builders.cost_oracle(
+            self.wind_costs, self.recourse_cost, norm,
+            self.wind_qubits, self.pdf_qubits,
+            encoding="arcsine", inverse=inverse,
+        )
 
     def grover_operator_asin_inconstraint(self, power, norm):
     #    ''' do the grover operator to a power for the arcsin+in constraint oracle '''

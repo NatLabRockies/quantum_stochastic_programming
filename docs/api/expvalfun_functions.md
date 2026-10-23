@@ -1,7 +1,9 @@
-# `ExpValFun_functions` — Circuit Primitives
+# `ExpValFun_functions` — Compatibility API
 
-Pure functions returning `QuantumCircuit` objects. No class state — designed to be
-passed as callables in the `args` dictionary consumed by `QAE_Optimizer`.
+Dictionary-based adapters returning `QuantumCircuit` objects, retained for
+existing experiments and notebooks. Their implementations delegate to the
+[shared typed circuit builders](circuits.md). Caller migration is separate
+from this behavior-preserving consolidation.
 
 ---
 

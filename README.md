@@ -33,6 +33,13 @@ The work is based on
 The active and legacy implementations have different APIs. New Python
 development should generally use `qiskit_impl/`.
 
+Shared typed circuit builders live in [`qiskit_impl/circuits.py`](qiskit_impl/circuits.py),
+PDF preparation in [`dist_prep.py`](qiskit_impl/dist_prep.py), and QAE assembly in
+[`qae.py`](qiskit_impl/qae.py). The optimizer methods and original
+[`ExpValFun_functions.py`](qiskit_impl/ExpValFun_functions.py) dictionary API
+delegate to those builders. Existing callers can keep their current APIs;
+linear-angle and arcsine oracle encodings remain distinct.
+
 ## Installation
 
 Use Python 3.11 or newer and install the core Qiskit dependencies:
@@ -118,9 +125,13 @@ python -m pytest qiskit_impl/test_classical_reference.py qiskit_impl/test_circui
 
 The circuit-builder tests use exact statevectors and operators to characterize
 both Qiskit APIs before consolidation, including their different oracle
-encodings. Two nonuniform-PDF optimizer cases are strict expected failures:
-the current initializer contains reset instructions that cannot be converted
-to a gate. These tests must be updated when that limitation is fixed.
+encodings. Nonuniform PDFs use unitary state preparation, with tests for
+amplitude ordering, gate conversion, inversion, controlled use, and nonuniform
+DQA/QAE behavior.
+
+The optimizer execution tests limit CPU Aer to one native thread to avoid
+stalls observed when CUDA-Q and Aer tests run in the same process. This is a
+test-only setting; production simulator and GPU parallelism are unchanged.
 
 The CUDA-Q tests are optional and run when CUDA-Q is installed:
 

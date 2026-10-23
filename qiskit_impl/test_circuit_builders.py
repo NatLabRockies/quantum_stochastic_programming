@@ -1,22 +1,18 @@
-"""Deterministic characterization of the two existing Qiskit circuit APIs."""
+"""Deterministic checks of shared builders and their compatibility APIs."""
 
 import math
-from pathlib import Path
-import sys
 
 import numpy as np
 import pytest
 from qiskit import QuantumCircuit
-from qiskit.exceptions import QiskitError
+from qiskit.circuit import Gate
 from qiskit.quantum_info import Operator, Statevector
 
-# qae.py currently imports its siblings as top-level modules.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from qiskit_impl import ExpValFun_functions as circuits
+from qiskit_impl import circuits as shared
 from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
-from qiskit_impl.dist_prep import pdf_initialize
-from qiskit_impl.qae import QAE_Optimizer
+from qiskit_impl.dist_prep import build_pdf_circuit, pdf_initialize
+from qiskit_impl.qae import QAE_Optimizer, build_qae_circuit
 
 
 ATOL = 1e-10
@@ -57,18 +53,19 @@ def circuit_args(optimizer):
     }
 
 
-@pytest.mark.parametrize("api", ["functional", "optimizer"])
+@pytest.mark.parametrize("api", ["functional", "optimizer", "shared"])
 @pytest.mark.parametrize(
     ("n", "weight"),
     [(n, weight) for n in range(1, 5) for weight in range(n + 1)],
 )
 def test_dicke_state_matches_definition(api, n, weight):
     optimizer = make_optimizer(n)
-    circuit = (
-        circuits.dicke_state_circuit({"n_y": n, "w_d": weight})
-        if api == "functional"
-        else optimizer.dicke_state_circuit(weight)
-    )
+    if api == "shared":
+        circuit = shared.dicke_state_circuit(n, weight)
+    elif api == "functional":
+        circuit = circuits.dicke_state_circuit({"n_y": n, "w_d": weight})
+    else:
+        circuit = optimizer.dicke_state_circuit(weight)
     amplitude = 1 / math.sqrt(math.comb(n, weight))
     expected = Statevector([
         amplitude if index.bit_count() == weight else 0
@@ -77,32 +74,15 @@ def test_dicke_state_matches_definition(api, n, weight):
     assert Statevector.from_instruction(circuit).equiv(expected, atol=ATOL)
 
 
-@pytest.mark.parametrize(
-    ("api", "distribution"),
-    [
-        ("functional", "uniform"),
-        ("functional", "asymmetric"),
-        ("functional", "sparse"),
-        ("optimizer", "uniform"),
-        *[
-            pytest.param(
-                "optimizer", distribution,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    raises=QiskitError,
-                    reason="Nonuniform Initialize includes reset; to_gate() rejects it.",
-                ),
-            )
-            for distribution in ("asymmetric", "sparse")
-        ],
-    ],
-)
+@pytest.mark.parametrize("api", ["functional", "shared", "optimizer"])
+@pytest.mark.parametrize("distribution", ["uniform", "asymmetric", "sparse", "deterministic"])
 def test_pdf_state_and_qubit_order(api, distribution):
     # Tuple entries correspond to qubits 0, 1, unlike displayed bitstrings.
     probabilities = {
         "uniform": [0.25, 0.25, 0.25, 0.25],
         "asymmetric": [0.1, 0.2, 0.3, 0.4],
         "sparse": [0.0, 0.7, 0.0, 0.3],
+        "deterministic": [0.0, 1.0, 0.0, 0.0],
     }[distribution]
     pdf = {
         (0, 0): probabilities[0],
@@ -113,13 +93,87 @@ def test_pdf_state_and_qubit_order(api, distribution):
     optimizer = make_optimizer(
         2, pdf=pdf, uniform=distribution == "uniform"
     )
-    circuit = (
-        pdf_initialize(circuit_args(optimizer))
-        if api == "functional"
-        else optimizer.pdf_initialize()
-    )
+    if api == "shared":
+        circuit = build_pdf_circuit(2, pdf, uniform=distribution == "uniform")
+    elif api == "functional":
+        circuit = pdf_initialize(circuit_args(optimizer))
+    else:
+        circuit = optimizer.pdf_initialize()
     expected = Statevector(np.sqrt(probabilities))
     assert Statevector.from_instruction(circuit).equiv(expected, atol=ATOL)
+
+
+@pytest.mark.parametrize(
+    "pdf",
+    [
+        {(0, 0): 0.1, (1, 0): 0.2, (0, 1): 0.3, (1, 1): 0.4},
+        {(1, 0): 0.7, (1, 1): 0.3},
+        {(1, 0): 1.0},
+    ],
+)
+def test_nonuniform_pdf_is_unitary_and_controllable(pdf):
+    circuit = build_pdf_circuit(2, pdf, uniform=False)
+    gate = circuit.to_gate()
+    amplitudes = np.zeros(4)
+    for scenario, probability in pdf.items():
+        amplitudes[scenario[0] + 2 * scenario[1]] = np.sqrt(probability)
+    np.testing.assert_allclose(
+        Statevector.from_instruction(circuit).data, amplitudes, atol=ATOL, rtol=0
+    )
+    np.testing.assert_allclose(
+        Operator(circuit.compose(circuit.inverse())).data,
+        np.eye(4), atol=ATOL, rtol=0,
+    )
+    for control in (0, 1):
+        controlled = QuantumCircuit(3)
+        if control:
+            controlled.x(0)
+        controlled.append(gate.control(), [0, 1, 2])
+        expected = np.zeros(8)
+        if control:
+            expected[1::2] = amplitudes
+        else:
+            expected[0] = 1
+        np.testing.assert_allclose(
+            Statevector.from_instruction(controlled).data,
+            expected, atol=ATOL, rtol=0,
+        )
+
+
+def test_nonuniform_dqa_and_qae_match_analytic_expectations():
+    optimizer = make_optimizer(
+        1, pdf={(0,): 0.25, (1,): 0.75}, uniform=False
+    )
+    args = circuit_args(optimizer)
+    dqa = circuits.alternating_operator_ansatz(args)
+    integrated_dqa = optimizer.adiabatic_evolution_circuit(
+        wind_demand=1, time=4, time_steps=2, norm=args["cost_norm"]
+    )
+    expected_cost = 0.25 * args["c_r"] + 0.75 * args["c_y"][0]
+    for preparation in (dqa, integrated_dqa):
+        state = Statevector.from_instruction(preparation)
+        np.testing.assert_allclose(
+            state.probabilities(), [0, 0.25, 0, 0.75], atol=ATOL, rtol=0
+        )
+        assert optimizer.process_expectation_value_optimizer(
+            1, state.probabilities_dict()
+        ) == pytest.approx(expected_cost, abs=ATOL)
+
+    # For demand one the arcsine oracle encodes expected cost/norm exactly.
+    probability = expected_cost / args["norm"]
+    theta = np.arcsin(np.sqrt(probability))
+    size = 2**args["m"]
+    readout = np.arange(size)
+    expected = np.zeros(size)
+    for phase in (theta / np.pi, -theta / np.pi):
+        differences = phase - readout / size
+        amplitudes = np.mean(
+            np.exp(2j * np.pi * np.outer(differences, np.arange(size))), axis=1
+        )
+        expected += np.abs(amplitudes)**2 / 2
+    qae = QAE_Optimizer(args).compile_qae_circuit()
+    actual = Statevector.from_instruction(qae).probabilities(list(range(args["m"])))
+    np.testing.assert_allclose(actual, expected, atol=ATOL, rtol=0)
 
 
 @pytest.mark.parametrize("api", ["functional", "optimizer"])
@@ -208,7 +262,7 @@ def test_mixer_operator_and_hamming_weight(api, amplitude):
                 assert abs(actual[row, column]) < ATOL
 
 
-@pytest.mark.parametrize("api", ["functional", "optimizer"])
+@pytest.mark.parametrize("api", ["functional", "optimizer", "optimizer_arcsine"])
 @pytest.mark.parametrize("weight", [1, 2])
 @pytest.mark.parametrize("inverse", [False, True])
 @pytest.mark.parametrize("scale", [0.6, 1.0])
@@ -218,6 +272,8 @@ def test_oracle_rotation_encoding(api, weight, inverse, scale):
     args["w_d"] = weight
     if api == "functional":
         circuit = circuits.single_oracle_sin_inconstraint(args, inverse=inverse)
+    elif api == "optimizer_arcsine":
+        circuit = optimizer.single_oracle_asin_inconstraint(args["norm"], inverse=inverse)
     else:
         circuit = optimizer.single_oracle_sin_inconstraint(
             scale, args["norm"], inverse=inverse
@@ -229,7 +285,7 @@ def test_oracle_rotation_encoding(api, weight, inverse, scale):
         for qubit, wind_cost in enumerate(args["c_y"]):
             if (basis >> qubit) & 1:
                 cost = wind_cost if (basis >> (qubit + 2)) & 1 else args["c_r"]
-                if api == "functional" and weight == 1:
+                if (api == "functional" and weight == 1) or api == "optimizer_arcsine":
                     angle += 2 * np.arcsin(np.sqrt(cost / args["norm"]))
                 else:
                     factor = scale if api == "optimizer" else 1.0
@@ -246,7 +302,7 @@ def test_oracle_rotation_encoding(api, weight, inverse, scale):
     )
 
 
-@pytest.mark.parametrize("api", ["functional", "optimizer"])
+@pytest.mark.parametrize("api", ["functional", "optimizer", "optimizer_arcsine"])
 @pytest.mark.parametrize("weight", [1, 2])
 def test_oracle_inverse_is_identity(api, weight):
     optimizer = make_optimizer(2)
@@ -255,6 +311,9 @@ def test_oracle_inverse_is_identity(api, weight):
     if api == "functional":
         forward = circuits.single_oracle_sin_inconstraint(args)
         inverse = circuits.single_oracle_sin_inconstraint(args, inverse=True)
+    elif api == "optimizer_arcsine":
+        forward = optimizer.single_oracle_asin_inconstraint(args["norm"])
+        inverse = optimizer.single_oracle_asin_inconstraint(args["norm"], inverse=True)
     else:
         forward = optimizer.single_oracle_sin_inconstraint(0.6, args["norm"])
         inverse = optimizer.single_oracle_sin_inconstraint(
@@ -295,7 +354,7 @@ def test_dqa_initialization_and_layer_order(api):
     assert Statevector.from_instruction(circuit).equiv(expected, atol=ATOL)
 
 
-@pytest.mark.parametrize("api", ["functional", "optimizer"])
+@pytest.mark.parametrize("api", ["functional", "optimizer", "shared"])
 @pytest.mark.parametrize("peak", [0, 1, 2, 4])
 def test_qae_known_amplitude_distribution(api, peak):
     optimizer = make_optimizer(1)
@@ -304,7 +363,12 @@ def test_qae_known_amplitude_distribution(api, peak):
     preparation = QuantumCircuit(2)
     oracle = QuantumCircuit(3)
     oracle.ry(2 * np.pi * peak / 8, 2)
-    if api == "functional":
+    if api == "shared":
+        circuit = build_qae_circuit(
+            preparation, oracle, preparation.inverse(), oracle.inverse(),
+            args["n_y"], args["m"],
+        )
+    elif api == "functional":
         circuit = QAE_Optimizer(args).implemented_qae(
             preparation, oracle, preparation.inverse(), oracle.inverse()
         )
@@ -355,3 +419,78 @@ def test_compile_qae_wires_modular_builders(gateset):
     assert Statevector.from_instruction(compiled).equiv(
         Statevector.from_instruction(expected), atol=ATOL
     )
+
+
+@pytest.mark.parametrize("weight", [0, 1, 2])
+def test_dicke_compatibility_return_types(weight):
+    optimizer = make_optimizer(2)
+    assert isinstance(shared.dicke_state_circuit(2, weight), QuantumCircuit)
+    assert isinstance(circuits.dicke_state_circuit({"n_y": 2, "w_d": weight}), QuantumCircuit)
+    expected_type = QuantumCircuit if weight == 0 else Gate
+    assert isinstance(optimizer.dicke_state_circuit(weight), expected_type)
+
+
+def test_uniform_pdf_adapter_does_not_require_explicit_probabilities():
+    actual = Statevector.from_instruction(pdf_initialize({"n_y": 2, "uniform": True}))
+    assert actual.equiv(Statevector([0.5, 0.5, 0.5, 0.5]), atol=ATOL)
+
+
+def test_modular_ansatz_retains_custom_factories_and_register_mapping():
+    args = circuit_args(make_optimizer(1))
+    args.update({
+        "y_reg": [1],
+        "pdf_reg": [0],
+        "Theta": [0.4, -0.7, 0.2],
+        "initial_state_circuit": lambda _: QuantumCircuit(1),
+        "pdf_circuit": lambda _: QuantumCircuit(1),
+    })
+
+    def cost(theta, _):
+        qc = QuantumCircuit(2)
+        qc.rx(theta, 0)
+        qc.cp(theta, 0, 1)
+        return qc
+
+    def mixer(theta, _):
+        qc = QuantumCircuit(1)
+        qc.ry(theta, 0)
+        return qc
+
+    args.update({"cost_operator_circuit": cost, "mixer_operator_circuit": mixer})
+    expected = QuantumCircuit(2)
+    expected.rx(0.4, 1)
+    expected.cp(0.4, 1, 0)
+    expected.ry(-0.7, 1)
+    expected.rx(0.2, 1)
+    expected.cp(0.2, 1, 0)
+    assert Operator(circuits.alternating_operator_ansatz(args)).equiv(
+        Operator(expected), atol=ATOL
+    )
+
+
+def test_oracle_default_demand_still_uses_arcsine_encoding():
+    args = circuit_args(make_optimizer(2))
+    del args["w_d"]
+    actual = circuits.single_oracle_sin_inconstraint(args)
+    expected = shared.cost_oracle(
+        args["c_y"], args["c_r"], args["norm"], args["y_reg"], args["pdf_reg"],
+        encoding="arcsine",
+    )
+    np.testing.assert_allclose(
+        Operator(actual).data, Operator(expected).data, atol=ATOL, rtol=0
+    )
+
+
+@pytest.mark.parametrize("invalid_encoding", ["unknown"])
+def test_oracle_rejects_invalid_encoding_and_arcsine_scale(invalid_encoding):
+    args = circuit_args(make_optimizer(1))
+    with pytest.raises(ValueError, match="Unsupported oracle encoding"):
+        shared.cost_oracle(
+            args["c_y"], args["c_r"], args["norm"], [0], [1],
+            encoding=invalid_encoding,
+        )
+    with pytest.raises(ValueError, match="scale"):
+        shared.cost_oracle(
+            args["c_y"], args["c_r"], args["norm"], [0], [1],
+            encoding="arcsine", scale=0.5,
+        )

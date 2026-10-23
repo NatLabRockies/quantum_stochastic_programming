@@ -5,7 +5,8 @@ Modules
 -------
 binary_optimizer    Core DQA+QAE solver (BinaryNestedOptimizer)
 qae                 Standalone QAE circuit builder (QAE_Optimizer)
-ExpValFun_functions Pure-function circuit primitives
+circuits            Shared typed circuit primitives and ansatz assembly
+ExpValFun_functions Dictionary-based compatibility adapters
 dist_prep           PDF encoding circuits
 resource_estimator  Fault-tolerant resource estimation
 """

@@ -5,6 +5,7 @@ File for generating probability distributions
 
 # Package Import
 import math
+from collections.abc import Mapping
 import scipy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,7 +13,7 @@ import matplotlib.pyplot as plt
 # Qiskit Import
 from qiskit import QuantumCircuit
 from qiskit.compiler import transpile
-from qiskit.circuit.library import Initialize
+from qiskit.circuit.library import StatePreparation
 #from qiskit_finance.circuit.library import NormalDistribution
 
 '''
@@ -135,26 +136,41 @@ def pdf_initialize(args:dict) -> QuantumCircuit:
         |ξ⟩ = Σ_ξ  √Pr[ξ]  |ξ⟩
 
     so that measuring the ξ register gives outcome ξ with probability Pr[ξ].
-    This is Eq. (17) of the paper  (|ξ⟩ = Π_j H_j  for uniform, or Initialize for general).
+    This is Eq. (17) of the paper (Hadamards for uniform, unitary state preparation otherwise).
 
     Two cases:
       uniform == True   : n Hadamard gates  (H^{\otimes n})  — efficient O(n) circuit
-      uniform == False  : Qiskit Initialize (arbitrary statevector) — O(2^n) gates after transpile
+      uniform == False  : Qiskit StatePreparation — O(2^n) gates after transpile
     """
-    qc = QuantumCircuit(args['n_y'], name=r'$|\mathcal{P}\rangle$')
-    # if np.isclose(list(args['pdf'].values()), [1/2**args['num_wind_vars']]*2**args['num_wind_vars']).all():
-    if args['uniform'] == True:
-        for i in range(args['n_y']):
+    uniform = args["uniform"]
+    return build_pdf_circuit(
+        args["n_y"], {} if uniform else args["pdf"], uniform=uniform
+    )
+
+
+def build_pdf_circuit(
+    n_qubits: int,
+    pdf: Mapping[tuple[int, ...], float],
+    *,
+    uniform: bool,
+) -> QuantumCircuit:
+    """Prepare a scenario distribution with tuple entry j mapped to qubit j.
+
+    Nonuniform preparation uses a unitary StatePreparation gate, without reset,
+    so the result supports gate conversion, inversion, and controlled use.
+    Applied to the all-zero register, amplitudes are the square roots of the
+    supplied probabilities. The uniform path retains its Hadamard construction.
+    """
+    qc = QuantumCircuit(n_qubits, name=r'$|\mathcal{P}\rangle$')
+    if uniform:
+        for i in range(n_qubits):
             qc.h(i)
     else:
-        wvfn = np.zeros(2**args['n_y'])
-        for scenario, pr in args['pdf'].items():
+        wvfn = np.zeros(2**n_qubits)
+        for scenario, pr in pdf.items():
             bstr = ''.join([str(i) for i in scenario])
             wvfn[int(bstr[::-1], 2)] = np.sqrt(pr)
-        qc.append(Initialize(wvfn), list(range(args['n_y'])))
-        #qc.initialize(wvfn)#, list(range(self.))) 
-        #simulator = Aer.get_backend('statevector_simulator')         
+        qc.append(StatePreparation(wvfn), list(range(n_qubits)))
         gates = ['u', 'p', 'x', 'y', 'z', 'h', 'rx', 'ry', 'rz', 's', 'sdg', 't', 'tdg', 'sx', 'sxdg', 'cx']
         qc = transpile(qc, basis_gates=gates)
-    #qc = circuit_to_gate(qc)
     return qc

@@ -32,14 +32,61 @@ from typing import List, Dict, Tuple
 
 # Qiskit Import
 from qiskit import QuantumCircuit
+from qiskit.circuit import Gate
 from qiskit_aer import Aer
 from qiskit.compiler import transpile
 from qiskit.circuit.library.standard_gates import ZGate
 from qiskit.circuit.library import QFTGate
 
 # File Import
-from dist_prep import *
-from ExpValFun_functions import alternating_operator_ansatz
+from qiskit_impl.dist_prep import (
+    make_normal_distribution_circuit,
+    make_variational_distribution_circuit,
+    make_pdf_skewnormal,
+    make_pdf_uniform,
+    pdf_initialize,
+)
+from qiskit_impl.ExpValFun_functions import alternating_operator_ansatz
+
+
+def build_qae_circuit(
+    op: QuantumCircuit | Gate,
+    oracle: QuantumCircuit | Gate,
+    op_inv: QuantumCircuit | Gate,
+    oracle_inv: QuantumCircuit | Gate,
+    n_y: int,
+    m: int,
+) -> QuantumCircuit:
+    """Assemble QAE with readout first, 2*n_y system qubits, then one ancilla.
+
+    Applies controlled Grover powers followed by inverse QFT. Callers retain
+    responsibility for transpilation, measurement, and cost normalization.
+    Explicit inverse inputs preserve the existing assembly APIs.
+    """
+    ancilla = m + 2 * n_y
+    system = list(range(m, ancilla))
+    system_ancilla = list(range(m, ancilla + 1))
+    qc = QuantumCircuit(m + 2 * n_y + 1)
+    for i in range(m):
+        qc.h(i)
+    qc.append(op, system)
+    qc.append(oracle, system_ancilla)
+    for i in range(m):
+        for _ in range(2**i):
+            qc.x(ancilla)
+            qc.cz(i, ancilla)
+            qc.x(ancilla)
+            qc.append(oracle_inv.control(1), [i] + system_ancilla)
+            qc.append(op_inv.control(1), [i] + system)
+            for qubit in system_ancilla:
+                qc.x(qubit)
+            qc.append(ZGate().control(2 * n_y + 1), [i] + system_ancilla)
+            for qubit in system_ancilla:
+                qc.x(qubit)
+            qc.append(op.control(1), [i] + system)
+            qc.append(oracle.control(1), [i] + system_ancilla)
+    qc.append(QFTGate(m).inverse(), list(range(m)))
+    return qc
 
 '''
 Class for compiling Quantum Expectation Value function algorithm
@@ -172,33 +219,7 @@ class QAE_Optimizer:
           a_tilde   = sin^2(b * pi / 2^m)
           phi_tilde = a_tilde * norm
         """
-        ancilla = self.m + 2*self.n_y 
-        qc = QuantumCircuit(self.m + 2*self.n_y  + 1) 
-        for i in range(self.m):
-            qc.h(i)
-        qc.append(op, list(range(self.m, self.m + 2*self.n_y )))
-        qc.append(oracle, list(range(self.m, self.m + 2*self.n_y  + 1)))
-        for i in range(self.m):
-            for j in range(2**i):
-                qc.x(ancilla)
-                qc.cz(i,ancilla)
-                qc.x(ancilla)
-                # invert
-                # A^-1
-                qc.append(oracle_inv.control(1), [i]+list(range(self.m, ancilla+1)))
-                qc.append(op_inv.control(1), [i]+list(range(self.m, ancilla)))
-                # |000...><000...|
-                for q in range(self.m,ancilla):
-                    qc.x(q)
-                qc.x(ancilla)
-                qc.append(ZGate().control(2*self.n_y  + 1), [i]+list(range(self.m, ancilla+1)))
-                for q in range(self.m,ancilla):
-                    qc.x(q)
-                qc.x(ancilla)
-                # A
-                qc.append(op.control(1), [i]+list(range(self.m, ancilla)))
-                qc.append(oracle.control(1), [i]+list(range(self.m, ancilla+1)))
-        qc.append(QFTGate(self.m).inverse(), list(range(self.m)))
+        qc = build_qae_circuit(op, oracle, op_inv, oracle_inv, self.n_y, self.m)
 
         if self.gateset:
             qc = transpile(qc, basis_gates=self.gateset)
