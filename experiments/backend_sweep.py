@@ -10,22 +10,18 @@
 # DQA is run for each (n_y, backend) pair using a linear-ramp angle schedule.
 # Results are collected into a combined timing/accuracy table and plots.
 
-import csv
 import os, sys, math, time
 import numpy as np
 import matplotlib.pyplot as plt
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
 
-from qae import pdf_initialize
-import ExpValFun_functions as exp
-from binary_optimizer import BinaryNestedOptimizer
+from qiskit_impl import circuits
+from qiskit_impl.dist_prep import build_pdf_circuit
+from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
 from qiskit_aer import AerSimulator
 from qiskit import transpile as qiskit_transpile
 import cudaq
@@ -124,18 +120,6 @@ for n_y in N_Y_VALUES:
     pdf_reg = list(range(n_y, 2 * n_y))
     bno     = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, n_y, is_uniform=True)
 
-    args_dqa = {
-        'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
-        'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
-        'y_reg': y_reg, 'pdf_reg': pdf_reg,
-        'Theta': Theta, 'w_d': w_d, 'cost_norm': cost_norm,
-        'uniform': True,
-        'cost_operator_circuit':  exp.cost_operator,
-        'mixer_operator_circuit': exp.demand_constraint_preserving_mixer,
-        'initial_state_circuit':  exp.dicke_state_circuit,
-        'pdf_circuit':            pdf_initialize,
-    }
-
     # CPU backends that should be skipped beyond MAX_CPU_N_Y
     _CPU_BACKENDS = {'qiskit-cpu', 'qpp-cpu'}
 
@@ -161,7 +145,13 @@ for n_y in N_Y_VALUES:
                 if device == 'GPU':
                     # Probe GPU availability before building the circuit
                     sim.available_devices()
-                dqa_circuit = exp.alternating_operator_ansatz(args_dqa)
+                dqa_circuit = circuits.alternating_operator_ansatz(
+                    n_y, y_reg, pdf_reg, Theta,
+                    circuits.dicke_state_circuit(n_y, w_d),
+                    build_pdf_circuit(n_y, pdf, uniform=True),
+                    lambda angle: circuits.cost_operator(angle, c_y, c_r, cost_norm, pdf_reg),
+                    lambda angle: circuits.demand_constraint_preserving_mixer(angle, y_reg),
+                )
                 dqa_circuit.measure_all()
                 dqa_circuit = qiskit_transpile(dqa_circuit, sim)
                 t0     = time.perf_counter()

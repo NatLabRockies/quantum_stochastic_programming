@@ -8,13 +8,11 @@ import math
 from collections.abc import Mapping
 import scipy
 import numpy as np
-import matplotlib.pyplot as plt
 
 # Qiskit Import
 from qiskit import QuantumCircuit
 from qiskit.compiler import transpile
 from qiskit.circuit.library import StatePreparation
-#from qiskit_finance.circuit.library import NormalDistribution
 
 '''
 Functions to generate circuits that encode specific probability distributions into quantum states

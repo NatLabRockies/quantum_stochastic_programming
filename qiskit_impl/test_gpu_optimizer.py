@@ -14,19 +14,15 @@ in seconds on any CPU.  The GPU paths are exercised when available and skipped
 gracefully on CPU-only machines.
 
 Run with:
-    cd qiskit_impl
-    python -m pytest test_gpu_optimizer.py -v
+    python -m pytest qiskit_impl/test_gpu_optimizer.py -v
 """
-
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
 
 import numpy as np
 import pytest
 
 from qiskit_aer import AerSimulator
-import binary_optimizer as optimizer_module
-from binary_optimizer import BinaryNestedOptimizer, _get_simulator
+from qiskit_impl import binary_optimizer as optimizer_module
+from qiskit_impl.binary_optimizer import BinaryNestedOptimizer, _get_simulator
 
 # ---------------------------------------------------------------------------
 # Shared fixture

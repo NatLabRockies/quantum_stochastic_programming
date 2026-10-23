@@ -1,44 +1,13 @@
-'''
-created by csagal on 7/2/2024
-Script for running quantum optimization algorithms
-'''
-# =============================================================================
-# GPU PORTING STRATEGY  (branch: gpuOptim)
-# =============================================================================
-# This file is PURE CIRCUIT CONSTRUCTION -- it builds the canonical QAE circuit
-# but never calls a simulator itself.
-#
-# GPU impact here is INDIRECT: every QuantumCircuit assembled in
-# QAE_Optimizer.implemented_qae() is ultimately executed by the caller
-# (binary_optimizer.BinaryNestedOptimizer.execute_qae).  To gain GPU speedup:
-#
-#   TIER 1 (caller change, zero changes needed here):
-#     The caller must swap its Aer.get_backend('statevector_simulator') for
-#       AerSimulator(method='statevector', device='GPU')
-#     See binary_optimizer.py for the exact GPU-SWAP markers.
-#
-#   TIER 2 (transpile once, here or in caller):
-#     The QAE circuit built by implemented_qae() uses the same topology for
-#     every amplitude-estimation shot -- transpile it ONCE and cache it.
-#     GPU transpilation via Qiskit's target='GPU' mode further reduces overhead.
-#
-#   TIER 3 (cuStateVec):
-#     For >20 qubits the statevector grows exponentially.  Use
-#       AerSimulator(method='statevector', device='GPU', cuStateVec_enable=True)
-#     to offload the state-vector contraction to NVIDIA cuStateVec (H100 ready).
-# =============================================================================
-# Package Import
-from typing import List, Dict, Tuple
+"""Shared QAE assembly and the dictionary-based compatibility class."""
 
 # Qiskit Import
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
-from qiskit_aer import Aer
 from qiskit.compiler import transpile
 from qiskit.circuit.library.standard_gates import ZGate
 from qiskit.circuit.library import QFTGate
 
-# File Import
+# Re-export PDF helpers for existing callers of this module.
 from qiskit_impl.dist_prep import (
     make_normal_distribution_circuit,
     make_variational_distribution_circuit,
@@ -88,42 +57,9 @@ def build_qae_circuit(
     qc.append(QFTGate(m).inverse(), list(range(m)))
     return qc
 
-'''
-Class for compiling Quantum Expectation Value function algorithm
-
-args should contain the following:
-
-{
-
-# Variables
-args['n_y']
-args['m']
-args['pdf']
-args['y_reg']
-args['pdf_reg']
-args['Theta']
-args['w_d']
-args['norm']
-args['uniform']
-args['gateset']
-
-# Functions
-args['cost_operator_circuit']
-args['mixer_operator_circuit']
-args['initial_state_circuit']
-args['pdf_circuit']
-args['oracle_circuit']
-
-# Also include any other variables your functions need!
-
-}
-
-'''
-
 class QAE_Optimizer:
     """
-    Assembles and runs the canonical Quantum Amplitude Estimation (QAE) algorithm
-    for the two-stage stochastic optimization problem.
+    Compatibility adapter assembling QAE from a dictionary of circuit factories.
 
     The QAE_Optimizer takes a user-supplied dictionary `args` that provides:
       - Problem dimensions  (n_y, m, y_reg, pdf_reg)

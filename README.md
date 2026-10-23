@@ -38,7 +38,17 @@ PDF preparation in [`dist_prep.py`](qiskit_impl/dist_prep.py), and QAE assembly 
 [`qae.py`](qiskit_impl/qae.py). The optimizer methods and original
 [`ExpValFun_functions.py`](qiskit_impl/ExpValFun_functions.py) dictionary API
 delegate to those builders. Existing callers can keep their current APIs;
-linear-angle and arcsine oracle encodings remain distinct.
+linear-angle and arcsine oracle encodings remain distinct. Active scripts and
+notebooks call the shared builders directly and use explicit `qiskit_impl.*`
+package imports. Run Python code from the repository root; standalone experiment
+scripts also locate the root when launched from another working directory.
+
+For new workflows, use `classical` for reference costs,
+`circuits.alternating_operator_ansatz` for DQA, `dist_prep.build_pdf_circuit`
+for scenario preparation, and `qae.build_qae_circuit` for QAE assembly.
+Choose the oracle encoding explicitly: the migrated modular examples retain
+arcsine for wind demand one and linear encoding otherwise. The integrated
+optimizer's sin oracle remains linear for every demand.
 
 ## Installation
 
@@ -120,14 +130,15 @@ The classical package uses only the Python standard library; its tests require
 pytest but no quantum SDKs. Run the Qiskit and classical-compatibility suites with:
 
 ```bash
-python -m pytest qiskit_impl/test_classical_reference.py qiskit_impl/test_circuit_builders.py qiskit_impl/test_gpu_optimizer.py -v
+python -m pytest qiskit_impl/test_classical_reference.py qiskit_impl/test_circuit_builders.py qiskit_impl/test_gpu_optimizer.py qiskit_impl/test_workflows.py -v
 ```
 
 The circuit-builder tests use exact statevectors and operators to characterize
 both Qiskit APIs before consolidation, including their different oracle
 encodings. Nonuniform PDFs use unitary state preparation, with tests for
 amplitude ordering, gate conversion, inversion, controlled use, and nonuniform
-DQA/QAE behavior.
+DQA/QAE behavior. Workflow tests compare the migrated sweep's exact numerical
+results with the dictionary API and check notebook code syntax.
 
 The optimizer execution tests limit CPU Aer to one native thread to avoid
 stalls observed when CUDA-Q and Aer tests run in the same process. This is a

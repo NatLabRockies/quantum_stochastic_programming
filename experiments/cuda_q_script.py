@@ -50,19 +50,17 @@ import os, sys, math
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Add the qiskit/aer-gpu venv site-packages so the Jupyter kernel (which starts
-# without 'module load qiskit') can find qiskit, qiskit_aer, cudaq, etc.
+# Allow running this script outside the repository root.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
 
 # Always available: Qiskit core + problem helpers
-from qae import *
-import ExpValFun_functions as exp
-from binary_optimizer import BinaryNestedOptimizer, _get_simulator
+from qiskit_impl import circuits
+from qiskit_impl.dist_prep import build_pdf_circuit
+from qiskit_impl.qae import build_qae_circuit
+from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 from qiskit.quantum_info import Statevector
 
 # Aer (needed for cpu and aer-gpu paths)
@@ -197,18 +195,13 @@ def _dqa_expected_value(theta_flat: list[float]) -> float:
     # cpu / aer-gpu path
     y_reg   = list(range(n_y))
     pdf_reg = list(range(n_y, 2*n_y))
-    args = {
-        'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
-        'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
-        'y_reg': y_reg, 'pdf_reg': pdf_reg,
-        'Theta': list(theta_flat), 'w_d': w_d, 'cost_norm': cost_norm,
-        'uniform': True,
-        'cost_operator_circuit':   exp.cost_operator,
-        'mixer_operator_circuit':  exp.demand_constraint_preserving_mixer,
-        'initial_state_circuit':   exp.dicke_state_circuit,
-        'pdf_circuit':             pdf_initialize,
-    }
-    circ = exp.alternating_operator_ansatz(args)
+    circ = circuits.alternating_operator_ansatz(
+        n_y, y_reg, pdf_reg, list(theta_flat),
+        circuits.dicke_state_circuit(n_y, w_d),
+        build_pdf_circuit(n_y, pdf, uniform=True),
+        lambda angle: circuits.cost_operator(angle, c_y, c_r, cost_norm, pdf_reg),
+        lambda angle: circuits.demand_constraint_preserving_mixer(angle, y_reg),
+    )
     sv   = Statevector.from_label('0' * (n_y + n_xi)).evolve(circ)
     counts = sv.probabilities_dict()
     return bno.process_expectation_value_optimizer(w_d, counts)
@@ -247,8 +240,8 @@ print(f"Theta ({len(Theta)} angles): {[round(v,3) for v in Theta]}")
 
 # %%
 # ── CLASSICAL SOLUTION (same for all backends) ─────────────────────────────────
-exp_vals        = bno.brute_force_wind_demand_expectation_values()
-bruteforce_vals = [bno.gas_costs[0]*x + exp_vals[n_y-x] for x in range(n_y+1)]
+exp_vals        = wind_demand_costs(c_y, c_r, pdf, n_y)
+bruteforce_vals = [c_x[0]*x + exp_vals[n_y-x] for x in range(n_y+1)]
 
 print("Classical phi(wind_demand):", [round(v, 3) for v in exp_vals])
 print("Classical o(x):", [round(v, 3) for v in bruteforce_vals])
@@ -285,18 +278,13 @@ if BACKEND in ('cpu', 'aer-gpu'):
     y_reg   = list(range(n_y))
     pdf_reg = list(range(n_y, 2*n_y))
 
-    args_dqa = {
-        'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
-        'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
-        'y_reg': y_reg, 'pdf_reg': pdf_reg,
-        'Theta': Theta, 'w_d': w_d, 'cost_norm': cost_norm,
-        'uniform': True,
-        'cost_operator_circuit':   exp.cost_operator,
-        'mixer_operator_circuit':  exp.demand_constraint_preserving_mixer,
-        'initial_state_circuit':   exp.dicke_state_circuit,
-        'pdf_circuit':             pdf_initialize,
-    }
-    dqa_circuit = exp.alternating_operator_ansatz(args_dqa)
+    dqa_circuit = circuits.alternating_operator_ansatz(
+        n_y, y_reg, pdf_reg, Theta,
+        circuits.dicke_state_circuit(n_y, w_d),
+        build_pdf_circuit(n_y, pdf, uniform=True),
+        lambda angle: circuits.cost_operator(angle, c_y, c_r, cost_norm, pdf_reg),
+        lambda angle: circuits.demand_constraint_preserving_mixer(angle, y_reg),
+    )
     print(f"DQA circuit: {dqa_circuit.num_qubits} qubits, depth={dqa_circuit.depth()}")
 
 # ── Execute ──────────────────────────────────────────────────────────────────
@@ -361,15 +349,13 @@ print(f"Relative error                   : {abs(dqa_phi - classical_phi)/classic
 t0 = time.perf_counter()
 
 if BACKEND in ('cpu', 'aer-gpu'):
-    # Build QAE circuit using QAE_Optimizer (same circuit for both)
-    args_qae = dict(args_dqa)
-    args_qae['m']              = m
-    args_qae['norm']           = norm
-    args_qae['oracle_circuit'] = exp.single_oracle_sin_inconstraint
-    args_qae['gateset']        = False
-
-    qae_optimizer = QAE_Optimizer(args_qae)
-    qae_circuit   = qae_optimizer.compile_qae_circuit()
+    oracle = circuits.cost_oracle(
+        c_y, c_r, norm, y_reg, pdf_reg,
+        encoding="arcsine" if w_d == 1 else "linear",
+    )
+    qae_circuit = build_qae_circuit(
+        dqa_circuit, oracle, dqa_circuit.inverse(), oracle.inverse(), n_y, m
+    )
     print(f"QAE circuit: {qae_circuit.num_qubits} qubits, depth={qae_circuit.depth()}")
 
     if BACKEND == 'cpu':

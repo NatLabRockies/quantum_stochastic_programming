@@ -12,15 +12,13 @@ import numpy as np
 from qiskit.quantum_info import Statevector
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = REPO_ROOT / "qiskit_impl"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-if str(QISKIT_IMPL_DIR) not in sys.path:
-    sys.path.insert(0, str(QISKIT_IMPL_DIR))
 
-from qiskit_impl import ExpValFun_functions as exp
+from qiskit_impl import circuits
 from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
-from qiskit_impl.qae import QAE_Optimizer, pdf_initialize
+from qiskit_impl.dist_prep import build_pdf_circuit
+from qiskit_impl.qae import build_qae_circuit
 
 
 def parse_args():
@@ -105,26 +103,13 @@ def run_sweep(args):
 
         y_reg = list(range(n_y))
         pdf_reg = list(range(n_y, 2 * n_y))
-        args_dqa = {
-            "n_y": n_y,
-            "n_x": n_x,
-            "n_xi": n_xi,
-            "c_x": c_x,
-            "c_y": c_y,
-            "c_r": c_r,
-            "pdf": pdf,
-            "y_reg": y_reg,
-            "pdf_reg": pdf_reg,
-            "Theta": theta,
-            "w_d": w_d,
-            "cost_norm": cost_norm,
-            "uniform": True,
-            "cost_operator_circuit": exp.cost_operator,
-            "mixer_operator_circuit": exp.demand_constraint_preserving_mixer,
-            "initial_state_circuit": exp.dicke_state_circuit,
-            "pdf_circuit": pdf_initialize,
-        }
-        dqa_circuit = exp.alternating_operator_ansatz(args_dqa)
+        dqa_circuit = circuits.alternating_operator_ansatz(
+            n_y, y_reg, pdf_reg, theta,
+            circuits.dicke_state_circuit(n_y, w_d),
+            build_pdf_circuit(n_y, pdf, uniform=True),
+            lambda angle: circuits.cost_operator(angle, c_y, c_r, cost_norm, pdf_reg),
+            lambda angle: circuits.demand_constraint_preserving_mixer(angle, y_reg),
+        )
         print(f"  DQA circuit: {dqa_circuit.num_qubits} qubits, depth={dqa_circuit.depth()}")
 
         start = time.perf_counter()
@@ -134,16 +119,14 @@ def run_sweep(args):
         dqa_phi = bno.process_expectation_value_optimizer(w_d, dqa_counts)
         print(f"  DQA phi(w_d={w_d}) = {dqa_phi:.4f} ({dqa_time * 1e3:.1f} ms)")
 
-        args_qae = dict(args_dqa)
-        args_qae.update(
-            {
-                "m": args.qpe_qubits,
-                "norm": norm,
-                "oracle_circuit": exp.single_oracle_sin_inconstraint,
-                "gateset": False,
-            }
+        oracle = circuits.cost_oracle(
+            c_y, c_r, norm, y_reg, pdf_reg,
+            encoding="arcsine" if w_d == 1 else "linear",
         )
-        qae_circuit = QAE_Optimizer(args_qae).compile_qae_circuit()
+        qae_circuit = build_qae_circuit(
+            dqa_circuit, oracle, dqa_circuit.inverse(), oracle.inverse(),
+            n_y, args.qpe_qubits,
+        )
         print(f"  QAE circuit: {qae_circuit.num_qubits} qubits, depth={qae_circuit.depth()}")
 
         start = time.perf_counter()

@@ -13,11 +13,8 @@ import numpy as np
 from scipy.optimize import minimize
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QISKIT_IMPL_DIR = REPO_ROOT / "qiskit_impl"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-if str(QISKIT_IMPL_DIR) not in sys.path:
-    sys.path.insert(0, str(QISKIT_IMPL_DIR))
 
 from cudaq_impl import CudaqQAEOptimizer
 import cudaq

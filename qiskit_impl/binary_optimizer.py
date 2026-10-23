@@ -1,110 +1,4 @@
 
-# =============================================================================
-# GPU OPTIMIZATION STRATEGY  (branch: gpuOptim)
-# =============================================================================
-#
-# OVERVIEW
-# --------
-# The current code runs on the CPU Aer statevector simulator.  The NREL HPC
-# module 'qiskit/aer-gpu' exposes AerSimulator with device='GPU' which uses
-# NVIDIA cuStateVec (cuQuantum) for GPU-accelerated statevector simulation.
-# The core bottleneck for all methods in this repo is the statevector
-# evolution step: for n qubits it requires 2^n complex amplitudes in memory
-# and O(2^n) work per gate layer.  The GPU provides massive parallelism for
-# exactly this operation.
-#
-# HACKATHON GOAL
-# --------------
-# Replace every call to Aer.get_backend('statevector_simulator') or
-# Aer.get_backend('aer_simulator_statevector') with a GPU-accelerated
-# AerSimulator and quantify the speedup.  Stretch goal: use
-# cuTensorNet (tensor network GPU backend) for deeper/wider circuits.
-#
-# THREE-TIER STRATEGY
-# -------------------
-#
-# TIER 1 -- Drop-in GPU backend swap (1-2 hours, zero algorithmic change)
-# -----------------------------------------------------------------------
-#   Replace:
-#     simulator = Aer.get_backend('statevector_simulator')
-#     simulator = Aer.get_backend('aer_simulator_statevector')
-#   With:
-#     from qiskit_aer import AerSimulator
-#     simulator = AerSimulator(method='statevector', device='GPU')
-#
-#   Locations in THIS file:
-#     - execute_optimizer()              -- statevector_simulator
-#     - execute_optimizer_oracle()       -- aer_simulator_statevector
-#     - execute_qae()                    -- aer_simulator_statevector
-#
-#   Expected speedup: 5-50x for circuits with n >= 20 qubits.
-#   Risk: ZERO -- pure backend swap, no circuit changes.
-#
-# TIER 2 -- Batched multi-shot execution (half-day)
-# -------------------------------------------------
-#   AerSimulator on GPU supports massive shot parallelism: running 10,000 shots
-#   in a single .run(shots=10000) call is far faster than 10,000 sequential runs
-#   because the GPU pipelines them.  The current code already uses shots= but
-#   calls simulator.run() once per x value in the outer loop.  Opportunity:
-#     - Batch all x values into a single transpile+run call using a list of circuits
-#     - Use Aer's 'executor' option to pin to GPU and set max_parallel_threads
-#
-#   Key API:
-#     simulator = AerSimulator(method='statevector', device='GPU',
-#                              max_parallel_shots=0,     # auto-detect
-#                              max_parallel_experiments=0)
-#     job = simulator.run([qc_x0, qc_x1, qc_x2, ...], shots=N)
-#     results = job.result()
-#
-# TIER 3 -- cuTensorNet for large circuits (stretch goal, 1-2 days)
-# ----------------------------------------------------------------
-#   For the full QAE circuit (n_system + m_qpe qubits, deep), cuTensorNet's
-#   tensor network contraction can simulate circuits too deep for dense
-#   statevector methods.  Switch:
-#     simulator = AerSimulator(method='matrix_product_state', device='GPU')
-#   This requires circuits with low entanglement entropy (MPS-friendly).
-#   The DQA circuit has local interactions (CP gates, SWAP pairs) which
-#   are naturally MPS-friendly -- this is worth benchmarking.
-#
-# CPU OPTIMIZATIONS (independent of GPU, apply on all tiers)
-# ----------------------------------------------------------
-#   A. Transpile ONCE outside loops:
-#      Currently transpile() is called inside every solve loop.
-#      Pre-transpile the parameterized circuit template once and only
-#      bind angles per iteration (use ParameterVector).
-#
-#   B. Eliminate circuit_to_gate() inside hot loops:
-#      circuit_to_gate() triggers a full circuit copy + gate compilation.
-#      In adiabatic_evolution_circuit(), it is called O(T) times per solve.
-#      Replace with direct .append() on already-compiled sub-circuits.
-#
-#   C. Use Statevector.evolve() for small n:
-#      For n_y <= 6 (64 amplitudes), numpy statevector ops on CPU may be
-#      faster than GPU launch overhead.  Auto-select backend by n_qubits:
-#        if n_qubits <= 12: use CPU  else: use GPU
-#
-# BENCHMARKING PLAN
-# -----------------
-#   1. Run brute_force_energy_surface() as classical baseline
-#   2. For n_y in [3, 4, 5, 6, 7, 8]: time execute_optimizer() on CPU vs GPU
-#   3. For m_qae in [3, 4, 5, 6, 7]:  time execute_qae() on CPU vs GPU
-#   4. Plot speedup vs n_qubits and vs circuit depth
-#   5. Report: max speedup, crossover point (where GPU beats CPU)
-#
-# FILES TO MODIFY FOR GPU PORT
-# ----------------------------
-#   qiskit_impl/binary_optimizer.py    -- ALL execute_*() methods (TIER 1)
-#   qiskit_impl/qae.py                 -- compile_qae_circuit() runner (TIER 1)
-#   qiskit_impl/ExpValFun_functions.py -- no simulator calls, but used by qae.py
-#   legacy/QuantumExpectedValueFunctionProject/dense_optimizer.py    -- many solveAnnealing*() (TIER 1)
-#   legacy/QuantumExpectedValueFunctionProject/expanded_optimizer.py -- same pattern
-#
-# DO NOT TOUCH
-# -----------
-#   resource_estimator.py  -- uses pytket/qualtran, unrelated to simulation
-#   dist_prep.py           -- pure circuit construction, no simulator calls
-# =============================================================================
-
 import sys
 from qiskit_impl import circuits as circuit_builders
 from qiskit_impl.dist_prep import build_pdf_circuit
@@ -117,24 +11,17 @@ from classical import (
 )
 
 import numpy as np
-import scipy
 import random
-from typing import List, Dict, Tuple
-import matplotlib.pyplot as plt
 
-from qiskit import QuantumCircuit#, Aer
-from qiskit_aer import Aer, AerSimulator
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
 from qiskit.compiler import transpile
-#from qiskit.tools.visualization import plot_histogram
 from qiskit.circuit.library.standard_gates import RYGate
 try:
     from qiskit_algorithms import EstimationProblem  # optional: pip install qiskit-algorithms
 except ImportError:
     EstimationProblem = None  # canonical_qae() will be unavailable without qiskit-algorithms
-#from qiskit.primitives import Sampler
-#from qiskit.algorithms import AmplitudeEstimation, FasterAmplitudeEstimation, MaximumLikelihoodAmplitudeEstimation
 from qiskit.converters import circuit_to_gate
-from qiskit.quantum_info import Statevector
 
 # ---------------------------------------------------------------------------
 # GPU backend helper
@@ -249,7 +136,6 @@ class BinaryNestedOptimizer:
             bstr = ('{0:0' + str(self.num_wind_vars) + 'b}').format(i)
             bstrs.append(self.bstr_to_output(bstr))
         self.all_wind_outputs_list = bstrs
-        #return bstrs
     
     def wind_scenario_cost(self, wind_output: list[int], scenario: tuple[int], wind_demand: int) -> float:
         """
@@ -298,9 +184,7 @@ class BinaryNestedOptimizer:
         # use the min_scenario to get the best decision for each scenario
         for scenario,pr in self.pdf.items():
             sc_cost, sc_decision = self.min_scenario(wind_demand, scenario)
-            #print(scenario, sc_decision)
             bstr = ''.join([str(b) for b in scenario[::-1] + sc_decision[::-1]])
-            #print(bstr)
             wvfn[int(bstr[::-1],2)] = np.sqrt(pr)
         return wvfn
 
@@ -362,7 +246,7 @@ class BinaryNestedOptimizer:
 
     ## quantum helpers
     def dicke_state_initialize(self, weight):
-        """Convenience wrapper around `dicke_state_circuit()` returning a gate object.
+        """Compatibility wrapper around `dicke_state_circuit()`.
 
         Returns a gate that prepares $|D_n^k\\rangle$ on `num_wind_vars` qubits
         with `weight` excitations. Delegates to `dicke_state_circuit()`.
@@ -371,26 +255,9 @@ class BinaryNestedOptimizer:
             weight: Integer $k$ — number of turbines to turn on (Hamming weight).
 
         Returns:
-            Gate object for the Dicke state preparation.
+            Gate for nonzero weight, or a QuantumCircuit for weight zero.
         """
-        qc = QuantumCircuit(self.num_wind_vars, name=r"$|D_n^{d-y}\rangle$")
-        ## What happens if classical init. cond?
-        #for i in range(weight):
-        #    qc.x(i)
-
-        #wvfn = np.zeros(2**self.num_wind_vars)
-        #all_bstrs = [''.join([str(b) for b in output]) for output in self.all_wind_outputs_list]
-        #for bstr in all_bstrs:
-        #    if sum(self.bstr_to_output(bstr)) == weight:
-        #        wvfn[int(bstr, 2)] = 1.
-        #qc.append(Initialize(wvfn/np.sqrt(sum(wvfn))), list(range(self.num_wind_vars)))
-        ##qc.initialize(wvfn/np.sqrt(sum(wvfn)))
-        ##simulator = Aer.get_backend('statevector_simulator')
-        #gates = ['u', 'p', 'x', 'y', 'z', 'h', 'rx', 'ry', 'rz', 's', 'sdg', 't', 'tdg', 'sx', 'sxdg', 'cx']
-        #qc = transpile(qc, basis_gates=gates)
-        #qc = circuit_to_gate(qc)
-        qc = self.dicke_state_circuit(weight)
-        return qc
+        return self.dicke_state_circuit(weight)
     
     def dicke_state_circuit(self, weight):
         """
@@ -550,23 +417,14 @@ class BinaryNestedOptimizer:
         """
         qc = QuantumCircuit(self.num_wind_vars*2, name='Uopt')
         
-        #qc.append(circuit_to_gate(self.dicke_state_initialize(wind_demand)), self.wind_qubits)
-        #qc.append(circuit_to_gate(self.pdf_initialize()), self.pdf_qubits)
         qc.append(self.dicke_state_initialize(wind_demand), self.wind_qubits)
         qc.append(self.pdf_initialize(), self.pdf_qubits)
         for t in range(time_steps):
-            #dt = (time+1)/time_steps
-            #s = (dt*t + 1)/(time + 1)
             dt = time/time_steps
             s = np.float64((dt*t)/time)
 
-            # CPU-OPT-A: transpile ONCE outside loops; currently called inside every adiabatic step
-            # CPU-OPT-B: circuit_to_gate() inside this time-step loop copies the circuit every
-            #            iteration -- replace with pre-compiled gates + ParameterVector angle binding
             qc.append(circuit_to_gate(self.cost_operator(s, self.recourse_cost, norm)), self.wind_qubits + self.pdf_qubits)
             qc.append(circuit_to_gate(self.demand_constraint_preserving_mixer((1-s)/np.pi)), self.wind_qubits)
-            #qc.append(self.cost_operator(s, self.recourse_cost, norm), self.wind_qubits + self.pdf_qubits)
-            #qc.append(self.cost_operator(s, self.recourse_cost, norm), self.wind_qubits + self.pdf_qubits)
         return qc
 
     def adiabatic_evolution_scenario_circuit(self, wind_demand, time, time_steps, scenario, norm):
@@ -576,21 +434,7 @@ class BinaryNestedOptimizer:
 
         qc.append(self.dicke_state_initialize(wind_demand), self.wind_qubits)
         qc.barrier()
-        # PARAM-TRANSPILE: Both sub-circuits below are rebuilt from scratch each iteration
-        # with a numeric s baked in.  Transpile-once pattern (see bayesianQC/optimize_10epoch_performance.py):
-        #   1. from qiskit.circuit import Parameter
-        #      s_param = Parameter('s')
-        #   2. cost_tmpl  = self.cost_scenario_operator(scenario, s_param, ...)  # build ONCE symbolically
-        #      mixer_tmpl = self.demand_constraint_preserving_mixer(s_param)     # build ONCE symbolically
-        #   3. from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-        #      pm = generate_preset_pass_manager(optimization_level=1, backend=gpu_simulator)
-        #      cost_t  = pm.run(cost_tmpl)   # transpile ONCE
-        #      mixer_t = pm.run(mixer_tmpl)  # transpile ONCE
-        #   4. Inside loop: qc.append(cost_t.assign_parameters({s_param: s_val}), ...)
-        #   Speedup scales linearly with time_steps.
         for t in range(time_steps):
-            #dt = (time+1)/time_steps
-            #s = (dt*t + 1)/(time + 1)
             dt = time/time_steps
             s = (dt*t)/time
 
@@ -635,9 +479,6 @@ class BinaryNestedOptimizer:
 
     def canonical_qae(self, Uopt, oracle, m, c, norm):
         ''' use qiskit tools to setup estimator NOTE still need to setup '''
-        #oracle = self.single_oracle_sin_inconstraint(c, norm)
-        #oracle = self.exact_oracle(ydemand,norm)
-        #print(oracle)
         A = BernoulliA(circuit_to_gate(Uopt),circuit_to_gate(oracle),self.num_wind_vars)
 
         problem = EstimationProblem(
@@ -645,24 +486,8 @@ class BinaryNestedOptimizer:
                     objective_qubits=[2*self.num_wind_vars],  # the "good" state Psi1 is identified as measuring |1> in qubit 0
                 )
         return problem
-        #sampler = Sampler(options={'shots':50})
-        #mle = MaximumLikelihoodAmplitudeEstimation(evaluation_schedule=m,
-        #                                           sampler=sampler)
-        #mle_result = mle.estimate(problem)
-        #return mle_result.estimation
 
-        #fae = FasterAmplitudeEstimation(delta=0.01,
-        #                                maxiter=m,
-        #                                sampler=sampler)
-        #fae_result = fae.estimate(problem)
-        #return fae_result.estimation
         
-        #ae = AmplitudeEstimation(
-        #            num_eval_qubits=m,  
-        #            sampler=sampler,
-        #        )
-        #ae_result = ae.estimate(problem)
-        #return ae_result.estimation, ae_result.mle
 
     def exact_oracle(self, ydemand, norm, inverse=False):
         """
@@ -689,46 +514,25 @@ class BinaryNestedOptimizer:
         """
         # let's grab a control operator for each bitstring
         qc = QuantumCircuit(2*self.num_wind_vars+1)
-        #Fdiag = [0.]*2**(self.num_wind_vars*2)
         ancilla = self.num_wind_vars*2
-        #all_wind_bstr_outputs = {bstr: self.bstr_to_output(bstr) for bstr in self.all_wind_bitstrings()}
         all_wind_bstr_outputs = {''.join([str(b) for b in output]): output for output in self.all_wind_outputs_list}
         for output_bstr, output in all_wind_bstr_outputs.items():
             if sum([int(b) for b in output_bstr]) != ydemand:
                 continue
             for scenario,pr in self.pdf.items():
                 scenario_bstr = ''.join([str(s) for s in scenario])
-                #bstr = (output_bstr + scenario_bstr)
                 bstr = scenario_bstr + output_bstr
                 cost = self.wind_scenario_cost(output[::-1], scenario[::-1], ydemand)
-                #print(bstr, cost, self.wind_costs)
-                #bstr = bstr[::-1]
                 theta = 2*np.arcsin(np.sqrt(cost/norm))
                 if inverse:
                     theta *= -1
                 qc.append(RYGate(theta).control(num_ctrl_qubits=2*self.num_wind_vars, ctrl_state=bstr), self.wind_qubits+self.pdf_qubits+[ancilla])
-        #print(qc)
         return qc
 
 
     def single_oracle_smallangle_inconstraint(self, c, norm):
-    #    ''' compute the oracle onto an ancilla qubit - using smallangle approximations '''
-    #    qc = QuantumCircuit(self.num_wind_vars*2 + 1, name='Fsmall')
-    #    ancilla = self.num_wind_vars*2
-    #    scale = np.pi*c/norm
-    #    #scale = 2*c*np.pi/norm
-    #    qc.ry(np.pi/2, ancilla) # R(pi/4)
-    #    qc.ry(-c*2, ancilla) # R(-c)
-    #    for q in self.wind_qubits:
-    #        theta_cy = self.wind_costs[q]*scale
-    #        theta_cr = self.recourse_cost*scale
 
-    #        qc.append(RYGate(theta_cy).control(2), [q, self.pdf_qubits[q], ancilla])
 
-    #        qc.x(self.pdf_qubits[q])
-    #        qc.append(RYGate(theta_cr).control(2), [q, self.pdf_qubits[q], ancilla])
-    #        qc.x(self.pdf_qubits[q])
-    #    return qc
         0
 
     def single_oracle_sin_inconstraint(self, c, norm, inverse=False):
@@ -765,34 +569,11 @@ class BinaryNestedOptimizer:
         )
 
     def grover_operator_sin_inconstraint(self, power, c, norm):
-    #    ''' do the grover operator to a power for the arcsin+in constraint oracle '''
-    #    qc = QuantumCircuit(self.num_wind_vars*2 + 2, name="F^{}".format(power))
-    #    ancilla = self.num_wind_vars*2
-    #    control = ancilla + 1
-    #    scale = np.pi*c/norm
-    #    for q in self.wind_qubits:
-    #        theta_cy = -2*power * self.wind_costs[q] * scale
-    #        theta_cr = -2*power * self.recourse_cost * scale
 
-    #        qc.append(RYGate(theta_cy).control(3), [control, q, self.pdf_qubits[q], ancilla])
 
-    #        qc.x(self.pdf_qubits[q])
-    #        qc.append(RYGate(theta_cr).control(3), [control, q, self.pdf_qubits[q], ancilla])
-    #        qc.x(self.pdf_qubits[q])
-    #    return qc
         return 0
 
     def grover_reflections_sin_inconstraint(self, m, c, norm):
-    #    ''' Create a circuit which does the grover reflections with the asin+constraint oracle
-    #        Assume the system is in the state |psi_opt>(1-a|0> + a|1>
-    #    '''
-    #    qc = QuantumCircuit(self.num_wind_vars*2 + 1 + m, name="QAE")
-    #    ancilla = self.num_wind_vars*2
-    #    for m_j in range(m):
-    #        qm =  ancilla+1+m_j
-    #        qc.h(qm)
-    #        qc.append(self.grover_operator_sin_inconstraint(2**m_j, c, norm), self.wind_qubits+self.pdf_qubits+[ancilla]+[qm])
-    #    return qc
         return 0
 
        
@@ -826,43 +607,15 @@ class BinaryNestedOptimizer:
         )
 
     def grover_operator_asin_inconstraint(self, power, norm):
-    #    ''' do the grover operator to a power for the arcsin+in constraint oracle '''
-    #    qc = QuantumCircuit(self.num_wind_vars*2 + 2, name="F^{}".format(power))
-    #    ancilla = self.num_wind_vars*2
-    #    control = ancilla + 1
-    #    for q in self.wind_qubits:
-    #        cq = self.wind_costs[q]/norm
-    #        cr = self.recourse_cost/norm
-    #        theta_cy = -2*power * 2*np.arcsouin(np.sqrt(cq))
-    #        theta_cr = -2*power * 2*np.arcsin(np.sqrt(cr))
 
-    #        qc.append(RYGate(theta_cy).control(3), [control, q, self.pdf_qubits[q], ancilla])
 
-    #        qc.x(self.pdf_qubits[q])
-    #        qc.append(RYGate(theta_cr).control(3), [control, q, self.pdf_qubits[q], ancilla])
-    #        qc.x(self.pdf_qubits[q])
-    #    return qc
         return 0
 
     def grover_reflections_asin_inconstraint(self, m, norm):
-    #    ''' Create a circuit which does the grover reflections with the asin+constraint oracle
-    #        Assume the system is in the state |psi_opt>(1-a|0> + a|1>
-    #    '''
-    #    qc = QuantumCircuit(self.num_wind_vars*2 + 1 + m, name="QAE")
-    #    ancilla = self.num_wind_vars*2
-    #    for m_j in range(m):
-    #        qm =  ancilla+1+m_j
-    #        qc.h(qm)
-    #        qc.append(self.grover_operator_asin_inconstraint(2**m_j, norm), self.wind_qubits+self.pdf_qubits+[ancilla]+[qm])
-    #    return qc
         return 0
 
 
-    # builders
-    # TODO: add control parameters for different algorithm flows
-    #def build_uopt_oracle(self):
 
-    # executors
     def execute_optimizer(self, qc, num_meas=None):
         """Execute the DQA circuit and return measurement results.
 
@@ -1141,48 +894,3 @@ class BinaryNestedOptimizer:
             pdf_output  = output[:n][::-1]   # xi in natural qubit order
             expectation_value += self.wind_scenario_cost(wind_output, pdf_output, wind_demand) * val
         return expectation_value
-
-
-def main():
-
-    bno = BinaryNestedOptimizer([1,], [0.1, 0.2, 0.15, .1, .1], 10, {(0,0,0,0,0): 0.5, (0,1,1,0,1):0.5}, 3, is_uniform=False)
-    demand_surface = bno.brute_force_wind_demand_expectation_values()
-
-    q = bno.dicke_state_circuit(3)
-    print(q)
-    sv = Statevector.from_label('0'*5)
-    sv = sv.evolve(q)
-    print(sv.probabilities_dict())
-    return
-    # should be 0, 5.075 
-    # second val is cr*.5 + c_2*.5 (since gen2 is the cheapest available in scenario 011)
-    print("expectation value surface")
-    print(demand_surface)
-    obj_x = bno.brute_force_energy_surface()
-    print("objective function surface")
-    print(obj_x)
-
-    print("QC!!!")
-    print("adiabatic evolution circuit")
-    wind_demand = 1
-    Uopt = bno.adiabatic_evolution_circuit(wind_demand, time=100, time_steps=4, norm=10)
-    print(Uopt)
-    opt_counts = bno.execute_optimizer(Uopt, num_meas=10_000)
-    print(opt_counts)
-    opt_expectation_value = bno.process_expectation_value_optimizer(wind_demand, opt_counts)
-    print(opt_expectation_value)
-
-
-    print("A = F(Uopt o I)")
-    qc = QuantumCircuit(7)
-    Uopt = bno.adiabatic_evolution_circuit(wind_demand, 100, 4, 10)
-    qc.append(Uopt, list(range(6)))
-    F = bno.single_oracle_asin_inconstraint(wind_demand*10)
-    qc.append(F, list(range(7)))
-    print(qc)
-
-
-    bno.grover_reflections_asin_inconstraint(m=4, norm=wind_demand*10)
-
-if __name__=='__main__':
-    main()

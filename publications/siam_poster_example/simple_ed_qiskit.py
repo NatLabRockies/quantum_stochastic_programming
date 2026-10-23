@@ -1,24 +1,20 @@
-# simple_ed_cuda_q.py
-#
-# Single-instance CUDA-Q run for a fixed n_y.
+# Single-instance Qiskit run for a fixed n_y.
 # Runs DQA + QAE and compares both to the classical brute-force optimum.
 
 import os, sys, math, time
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
 
 # ── PATH SETUP ─────────────────────────────────────────────────────────────────
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_QISKIT_IMPL = os.path.join(_REPO_ROOT, 'qiskit_impl')
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-if _QISKIT_IMPL not in sys.path:
-    sys.path.insert(0, _QISKIT_IMPL)
 
-from qae import *
-import ExpValFun_functions as exp
-from binary_optimizer import BinaryNestedOptimizer
+from qiskit_impl import circuits
+from qiskit_impl.dist_prep import build_pdf_circuit
+from qiskit_impl.qae import build_qae_circuit
+from qiskit_impl.binary_optimizer import BinaryNestedOptimizer
+from classical import wind_demand_costs
 from qiskit_aer import AerSimulator  # kept for optional shot-based fallback
 
 
@@ -67,9 +63,9 @@ print(f"Qubits: DQA={n_qubits_dqa}, QAE={n_qubits_qae}")
 
 # ── CLASSICAL BASELINE ─────────────────────────────────────────────────────────
 bno          = BinaryNestedOptimizer(c_x, c_y, c_r, pdf, d, is_uniform=True)
-exp_vals     = bno.brute_force_wind_demand_expectation_values()
+exp_vals     = wind_demand_costs(c_y, c_r, pdf, d)
 classical_phi = exp_vals[w_d]
-obj_surface  = [bno.gas_costs[0] * x + exp_vals[d - x] for x in range(x_min, d + 1)]
+obj_surface  = [c_x[0] * x + exp_vals[d - x] for x in range(x_min, d + 1)]
 
 print(f"\nClassical phi(wind_demand): {[round(v, 3) for v in exp_vals]}")
 print(f"Classical phi(w_d={w_d}): {classical_phi:.4f}")
@@ -82,36 +78,17 @@ for t in range(timesteps):
 
 Theta = theta0
 
-# if USE_COBYLA:
-#     print(f"\nOptimising {len(theta0)} angles with COBYLA …")
-#     opt_result = minimize(
-#         lambda th: cudaq_opt.estimate_expected_value_sv(list(th), w_d),
-#         theta0,
-#         method='COBYLA',
-#         options={'maxiter': 500, 'rhobeg': 0.5, 'disp': False},
-#     )
-#     Theta = list(opt_result.x)
-#     print(f"COBYLA done | phi={opt_result.fun:.4f} | {opt_result.nfev} evals")
-# else:
-#     Theta = theta0
-#     print(f"\nLinear ramp ({len(Theta)} angles, COBYLA disabled)")
-
 # ── BUILD SHARED DQA CIRCUIT ─────────────────────────────────────────────
 y_reg   = list(range(n_y))
 pdf_reg = list(range(n_y, 2 * n_y))
 
-args_dqa = {
-    'n_y': n_y, 'n_x': n_x, 'n_xi': n_xi,
-    'c_x': c_x, 'c_y': c_y, 'c_r': c_r, 'pdf': pdf,
-    'y_reg': y_reg, 'pdf_reg': pdf_reg,
-    'Theta': Theta, 'w_d': w_d, 'cost_norm': cost_norm,
-    'uniform': True,
-    'cost_operator_circuit':  exp.cost_operator,
-    'mixer_operator_circuit': exp.demand_constraint_preserving_mixer,
-    'initial_state_circuit':  exp.dicke_state_circuit,
-    'pdf_circuit':            pdf_initialize,
-}
-dqa_circuit = exp.alternating_operator_ansatz(args_dqa)
+dqa_circuit = circuits.alternating_operator_ansatz(
+    n_y, y_reg, pdf_reg, Theta,
+    circuits.dicke_state_circuit(n_y, w_d),
+    build_pdf_circuit(n_y, pdf, uniform=True),
+    lambda angle: circuits.cost_operator(angle, c_y, c_r, cost_norm, pdf_reg),
+    lambda angle: circuits.demand_constraint_preserving_mixer(angle, y_reg),
+)
 print(f"  DQA circuit: {dqa_circuit.num_qubits} qubits, depth={dqa_circuit.depth()}")
 
 # ── DQA EXECUTION ──────────────────────────────────────────────────────────────
@@ -136,14 +113,13 @@ dqa_mode = 'sv' if USE_STATEVECTOR else f'{N_SHOTS} shots'
 print(f"DQA  phi(w_d={w_d}) = {dqa_phi:.4f}  ({dqa_time*1e3:.1f} ms, {dqa_mode})")
 
 # ── BUILD QAE CIRCUIT ────────────────────────────────────────────────────
-args_qae = dict(args_dqa)
-args_qae['m']              = m_qpe
-args_qae['norm']           = norm
-args_qae['oracle_circuit'] = exp.single_oracle_sin_inconstraint
-args_qae['gateset']        = False
-
-qae_optimizer = QAE_Optimizer(args_qae)
-qae_circuit   = qae_optimizer.compile_qae_circuit()
+oracle = circuits.cost_oracle(
+    c_y, c_r, norm, y_reg, pdf_reg,
+    encoding="arcsine" if w_d == 1 else "linear",
+)
+qae_circuit = build_qae_circuit(
+    dqa_circuit, oracle, dqa_circuit.inverse(), oracle.inverse(), n_y, m_qpe
+)
 print(f"  QAE circuit: {qae_circuit.num_qubits} qubits, depth={qae_circuit.depth()}")
 
 # ── QAE EXECUTION ────────────────────────────────────────────────────────
