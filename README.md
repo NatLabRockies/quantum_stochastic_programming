@@ -105,8 +105,14 @@ print("DQA estimate at wind_demand=1:", dqa_estimate)
 Run the primary Qiskit test suite from the repository root:
 
 ```bash
-python -m pytest qiskit_impl/test_gpu_optimizer.py -v
+python -m pytest qiskit_impl/test_circuit_builders.py qiskit_impl/test_gpu_optimizer.py -v
 ```
+
+The circuit-builder tests use exact statevectors and operators to characterize
+both Qiskit APIs before consolidation, including their different oracle
+encodings. Two nonuniform-PDF optimizer cases are strict expected failures:
+the current initializer contains reset instructions that cannot be converted
+to a gate. These tests must be updated when that limitation is fixed.
 
 The CUDA-Q tests are optional and run when CUDA-Q is installed:
 
